@@ -33,7 +33,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/Arsolitt/amnezigo
+        - github.com/Arsolitt/cheburbox
 
     golines:
       # Target maximum line length.
