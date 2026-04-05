@@ -24,12 +24,12 @@ Declarative configuration (`cheburbox.json` per server) with automatic credentia
 discover → load & parse → build DAG → topological sort → resolve & generate → post-process
 ```
 
-1. **Discover** — recursively find all directories containing `cheburbox.json` (or `.cheburbox.jsonnet`)
-2. **Load & Parse** — eval jsonnet if needed, parse cheburbox.json into Go structs, read existing config.json for persistence
-3. **Build DAG** — outbound references to other servers create edges; detect cycles → error
-4. **Topological Sort** — determine generation order (servers with no outgoing refs first)
-5. **Resolve & Generate** — for each server in order: create cross-server users on targets, generate certs, build config.json, write to disk
-6. **Post-process** — compile local rule-sets, validate with `sing-box check`
+1. **Discover** — find all direct child directories containing `cheburbox.json` (or `.cheburbox.jsonnet`) under the project root. Only one level deep.
+2. **Load & Parse** — eval jsonnet if needed, parse cheburbox.json into Go structs, read existing config.json for persistence.
+3. **Build DAG** — outbound references to other servers create edges; detect cycles → error.
+4. **Topological Sort** — determine generation order (servers with no outgoing refs first).
+5. **Resolve & Generate** — for each server in order: create cross-server users on targets, generate certs, build config.json. All configs generated in memory first; written to disk only after all servers succeed (atomic batch).
+6. **Post-process** — compile local rule-sets, validate with `sing-box check`.
 
 ### Known Limitations
 
@@ -42,6 +42,10 @@ Cheburbox runs locally on the developer machine. It reads all server directories
 ### Implicit Server/Client Distinction
 
 No explicit `role` field. A server is a "server" if it has inbounds. A "client" is just a server with outbounds referencing other servers and optionally a tun inbound. Cheburbox treats them identically.
+
+### Atomic Batch Write
+
+When generating configs, all servers are processed in memory. No files are written to disk until every server in the generation set has been successfully generated. If any server fails, generation stops immediately and no files are modified. This ensures consistency across the project.
 
 ## 3. cheburbox.json Schema
 
@@ -150,21 +154,25 @@ No explicit `role` field. A server is a "server" if it has inbounds. A "client" 
 - **tun** — full sing-box tun config, no special handling. Just another inbound type.
 - **Certificates** — self-signed, auto-generated if missing. Cheburbox uses `crypto/x509` + `crypto/ed25519` from Go stdlib.
 
+### Extensible Inbound Architecture
+
+Inbound generators follow a plugin-like interface to allow adding new protocol types (shadowsocks, trojan, etc.) in future phases without refactoring. First phase implements: vless, hysteria2, tun.
+
 ### Outbound Details
 
 - **type** — required: `direct`, `vless`, `hysteria2`, `urltest`, `selector`.
-- **server** — (vless/hysteria2) target server directory name.
+- **server** — (vless/hysteria2) target server directory name (used as server identifier).
 - **inbound** — (vless/hysteria2) target inbound tag on the target server.
 - **user** — (vless/hysteria2) optional. Default: current server directory name.
 - **endpoint** — (vless/hysteria2) optional override. Default: target server's `endpoint` field from its cheburbox.json.
 - **flow** — (vless) default: `xtls-rprx-vision`. Explicit string `"null"` = omit field from generated config.
-- **domain_resolver** — auto-filled from DNS server marked `default_resolver: true`. Fallback: first DNS with `detour: "direct"` or `type: "local"`.
+- **domain_resolver** — auto-filled from DNS server marked `default_resolver: true`. Filled on all outbound types. DNS section is mandatory in cheburbox.json.
 
 ### DNS Details
 
-- Full DNS config as per sing-box schema, passed through.
+- Full DNS config as per sing-box schema, passed through without parsing (sing-box check validates later).
 - `default_resolver: true` on a DNS server marks it as the default `domain_resolver` for all outbounds.
-- If no explicit `default_resolver`, fallback to first DNS server with `detour: "direct"` or `type: "local"`.
+- DNS section is mandatory in every cheburbox.json.
 
 ### Route Details
 
@@ -172,8 +180,8 @@ No explicit `role` field. A server is a "server" if it has inbounds. A "client" 
 - `default_domain_resolver` — auto-filled from `default_resolver` DNS server.
 - `rule_sets` — remote rule-sets with URL, format, download_detour, update_interval.
 - `custom_rule_sets` — list of tags for local rule-sets (extension.json → compiled to .srs).
-- `rules` — route rules as per sing-box schema.
-- Local rule-sets compiled via `sing-box rule-set compile` from sing-box library.
+- `rules` — route rules as per sing-box schema. Passed through without parsing.
+- Local rule-sets compiled via sing-box library rule-set compile. Source format: standard sing-box rule-set JSON. Output: `.srs` file in the same server directory.
 - DRY for shared rule-set definitions handled via jsonnet, not by cheburbox.
 
 ## 4. Jsonnet Integration
@@ -189,7 +197,7 @@ This allows shared config parts (rule-set catalogs, DNS presets, route rules) to
 
 ## 5. Persistence
 
-Credentials are read from and written to `config.json` in each server directory.
+Credentials are read from and written to `config.json` in each server directory. The generated `config.json` is a pure sing-box config with no cheburbox metadata.
 
 ### Read Order
 
@@ -217,7 +225,9 @@ When outbound references another server (e.g., `server: sp-p-2, inbound: vless-i
 3. If exists — extract credentials (uuid/password).
 4. If not — generate credentials, add user to target server's inbound, write updated config.json.
 
-This is why topological sort matters: the target server's config.json must be generated before the source server's.
+This is why topological sort matters: the target server's config.json must be generated before the source server's. When using `--server`, all upstream dependencies are generated transitively.
+
+A single user (e.g., `ru-p-2`) may exist in multiple inbounds (vless and hysteria2) on the same target server. This is valid and expected.
 
 ### Certificate Lifecycle
 
@@ -240,29 +250,34 @@ Commands:
   generate [--server <name>] [--all] [--dry-run]
     Generate config.json for specified server(s).
     --all: all servers (default)
-    --dry-run: stdout only, no file writes
-    --skip-cert: do not generate certificates
-    --skip-compile: do not compile rule-sets
-    --force: regenerate all credentials (ignore persistence)
+    --server <name>: generate only this server and its upstream dependencies (transitively).
+      All dependencies must be declared (cheburbox.json exists with required inbounds).
+    --dry-run: stdout only, no file writes. Output format: separate JSON blocks
+      with headers (=== server-name/config.json ===).
 
   links [--server <name>] [--user <name>] [--inbound <tag>] [--format json|uri]
-    Export user configs.
+    Export user configs from generated config.json.
+    Requires config.json to exist — run generate first.
     Default: all users on specified server/inbound.
-    --format json: outbound configs in JSON
-    --format uri (default): vless:// and hysteria2:// share links
+    --format json: ready-to-use sing-box outbound configs for client config.
+    --format uri (default): vless:// and hysteria2:// share links.
+      Hysteria2 links use pin-sha256= parameter (certificate public key hash),
+      not insecure=1.
 
   validate [--server <name>] [--all]
-    Validate generated config.json via sing-box check.
-    Also check consistency: all outbound refs resolve, no cycles, credentials present.
+    Two-phase validation:
+    1. Consistency checks: all outbound refs resolve, no cycles, credentials present.
+    2. sing-box check on existing config.json files (skipped if config.json missing).
 
   diff [--server <name>]
     Show diff between current config.json and what would be generated.
+    Implemented as in-memory generation + unified diff against disk file.
 
   gen-cert [--server <name>] [--inbound <tag>]
     Explicit certificate generation/regeneration for hysteria2 inbound.
 
   init [--server <name>]
-    Create template cheburbox.json in server directory.
+    Create a full example cheburbox.json template in server directory.
 
   rule-set compile [--server <name>] [--input <file>] [--output <file>]
     Compile local rule-set (extension.json -> extension.srs).
@@ -276,7 +291,7 @@ Cheburbox automatically adds to every generated config.json:
 - `experimental.cache_file.enabled: true, path: "cache.db"` (unless explicitly disabled)
 - `route.auto_detect_interface: true` (unless overridden in cheburbox.json)
 - `route.default_domain_resolver` — from DNS server marked `default_resolver: true`
-- `domain_resolver` on direct outbound — from default resolver DNS
+- `domain_resolver` on all outbound types — from default resolver DNS
 
 ## 8. Project Structure
 
@@ -304,7 +319,7 @@ cheburbox/
 │   ├── ruleset/
 │   │   └── compile.go         # wrap sing-box rule-set compile
 │   └── validate/
-│       └── check.go           # wrap sing-box config check
+│       └── check.go           # consistency checks + sing-box config check
 ├── go.mod
 └── Makefile
 ```
@@ -348,10 +363,8 @@ sing-box/
 Cheburbox checks at generation time:
 
 - No circular dependencies between servers
-- Outbound `server` references an existing server directory
+- Outbound `server` references an existing server directory (direct child of project root)
 - Outbound `inbound` references an existing inbound on target server
-- No two inbounds on same server share the same `listen_port` and `listen` address
 - No two hysteria2 inbounds on same server share the same `tls.server_name` (would conflict on cert files)
-- All referenced DNS servers exist
-- All referenced rule-set tags are defined
+- DNS section is present
 - `default_resolver: true` is set on at most one DNS server
