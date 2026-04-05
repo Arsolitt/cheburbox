@@ -188,20 +188,44 @@ Inbound generators follow a plugin-like interface to allow adding new protocol t
 - **endpoint** — (vless/hysteria2) optional override. Default: target server's `endpoint` field from its cheburbox.json.
 - **flow** — (vless) always explicit in cheburbox.json. Default: `xtls-rprx-vision`. Explicit string `"null"` = omit field from generated config.
 - **domain_resolver** — auto-filled from DNS server marked `default_resolver: true`. Filled on all outbound types. DNS section is mandatory in cheburbox.json.
+- **selector** — `type: "selector"`, `tag`, `outbounds` (list of outbound tags). No additional fields.
+
+```jsonc
+{
+  "type": "selector",
+  "tag": "proxy",
+  "outbounds": [
+    "de-p-1-vless",
+    "de-p-1-hy",
+    "sp-p-2-vless",
+    "ams-p-1-vless",
+    "sp-p-2-hy",
+    "fin-p-2-hy",
+    "ams-p-1-hy",
+    "fin-p-1-vless"
+  ]
+}
+```
+
+### Log Details
+
+- Full log config as per sing-box schema, passed through without parsing.
+- No cheburbox-specific fields in the log section.
 
 ### DNS Details
 
-- Full DNS config as per sing-box schema, passed through without parsing (sing-box check validates later).
+- Full DNS config fully parsed into cheburbox Go structs (not raw passthrough).
 - `default_resolver: true` on a DNS server marks it as the default `domain_resolver` for all outbounds.
 - DNS section is mandatory in every cheburbox.json.
+- Cheburbox structs model the complete sing-box DNS schema to enable validation and auto-fill of `domain_resolver`.
 
 ### Route Details
 
 - `auto_detect_interface` — default: `true`, can be overridden.
 - `default_domain_resolver` — auto-filled from `default_resolver` DNS server.
-- `rule_sets` — remote rule-sets with URL, format, download_detour, update_interval.
+- `rule_sets` — remote rule-sets with URL, format, download_detour, update_interval. Fully parsed into cheburbox structs.
 - `custom_rule_sets` — list of tags for local rule-sets (extension.json → compiled to .srs).
-- `rules` — route rules as per sing-box schema. Passed through without parsing.
+- `rules` — route rules fully parsed into cheburbox Go structs (not raw passthrough).
 - Local rule-sets compiled via sing-box `common/srs` package. Source format: standard sing-box rule-set JSON. Output: `.srs` file in the same server directory.
 - DRY for shared rule-set definitions handled via jsonnet, not by cheburbox.
 - Rule-set compilation happens automatically during `generate` for all `*.json` rule-set source files found in the server directory.
@@ -224,8 +248,10 @@ Credentials are read from and written to `config.json` in each server directory.
 ### Read Order
 
 When generating config for a server:
-1. If `config.json` exists, parse it and extract all credentials.
+1. If `config.json` exists, parse it into sing-box option structs and extract all credentials.
 2. If a credential is missing (new user, new inbound), generate it.
+
+Credential extraction uses sing-box option structs (the same structs used for output generation), not raw JSON traversal.
 
 ### User Lifecycle
 
@@ -340,8 +366,8 @@ cheburbox/
 │   │   ├── convert.go         # cheburbox structs → sing-box option structs
 │   │   ├── inbound.go         # vless, hysteria2, tun generators
 │   │   ├── outbound.go        # direct, vless, hysteria2, urltest, selector generators
-│   │   ├── dns.go             # dns section passthrough
-│   │   ├── route.go           # route + rule-sets passthrough
+│   │   ├── dns.go             # dns section full parsing + domain_resolver auto-fill
+│   │   ├── route.go           # route + rule-sets full parsing
 │   │   ├── certs.go           # TLS cert generation, validation, rotation
 │   │   └── credentials.go     # UUID, password, x25519 keypair generation
 │   ├── links/
@@ -401,3 +427,84 @@ Cheburbox checks at generation time:
 - DNS section is present
 - `default_resolver: true` is set on at most one DNS server
 - `endpoint` is present for servers with inbounds
+
+## 10. Implementation Phases
+
+### Phase 1 — Foundation
+
+Project skeleton and configuration loading. No generation logic.
+
+- CLI setup with cobra (global flags: `--project`, `--jpath`)
+- Cheburbox Go structs for full `cheburbox.json` schema (`internal/config/cheburbox.go`)
+- Discovery: find server directories with `cheburbox.json` or `.cheburbox.jsonnet`
+- Jsonnet evaluation via `github.com/google/go-jsonnet`
+- Parse cheburbox.json into cheburbox structs
+- Basic `generate` command: reads config, validates required fields, outputs minimal skeleton
+- Unit tests for config parsing and discovery
+
+### Phase 2 — Single-Server Generation
+
+Full config generation for a single server (no cross-server dependencies).
+
+- Credential generation: UUID (`gofrs/uuid/v5`), passwords (24 bytes base64), x25519 keypairs (`crypto/ecdh`), short_id
+- Inbound generators: vless (with reality), hysteria2 (with TLS certs, obfs, masquerade), tun (passthrough)
+- Outbound generators: direct, vless, hysteria2, urltest, selector
+- DNS section: full parsing, auto-fill `domain_resolver` from `default_resolver` DNS server
+- Route section: full parsing, rule-sets, custom rule-sets
+- Conversion layer: cheburbox structs → sing-box option structs
+- Certificate generation: self-signed ed25519 certs via `crypto/x509` + `crypto/ed25519`
+- Certificate lifecycle: read existing cert, check CN/SAN, regenerate on mismatch
+- Persistence: read credentials from existing `config.json` via sing-box option structs
+- Auto-generated boilerplate: cache_file, auto_detect_interface, domain_resolver
+- `--clean` flag support
+- Unit tests for all generators and credential logic
+
+### Phase 3 — Rule-Sets
+
+Local rule-set compilation.
+
+- Wrap sing-box `common/srs` package for `.json` → `.srs` compilation
+- Auto-compile all `*.json` rule-set source files in server directory during `generate`
+- Standalone `rule-set compile` command with `--server`, `--input`, `--output` flags
+- Tests with sample rule-set JSON
+
+### Phase 4 — Validation
+
+Config validation without generation.
+
+- Consistency checks: outbound refs resolve, no cycles, credentials present, DNS present, `default_resolver` uniqueness, `endpoint` for servers with inbounds, no duplicate hysteria2 `server_name`
+- sing-box config check via Go API (`box.New` with `include.Context`)
+- `validate` command with `--server` and `--all` flags
+- Tests with valid and invalid configs
+
+### Phase 5 — Multi-Server DAG
+
+Cross-server dependency resolution.
+
+- DAG construction from outbound `server` references
+- Topological sort with cycle detection
+- Cross-server user provisioning (add users to target server in-memory configs)
+- Batch write: two-pass approach (in-memory generation, then atomic disk write)
+- `--server` flag: generate specified server and transitive upstream dependencies
+- `--all` flag: generate all servers
+- `--dry-run`: stdout JSON output, no disk writes (binary files base64-encoded)
+- Integration tests with multi-server project layouts
+
+### Phase 6 — Utility Commands
+
+Quality-of-life commands.
+
+- `diff` command: in-memory generation + unified diff against disk `config.json`
+- `init` command: create example `cheburbox.json` template in server directory
+- Tests for diff output and init templates
+
+### Phase 7 — Links
+
+Client connection link export.
+
+- `links` command with `--server`, `--user`, `--inbound`, `--format` flags
+- `--format uri` (default): `vless://` and `hysteria2://` share links
+- `--format json`: ready-to-use sing-box outbound configs
+- Hysteria2 links use `pin-sha256=` (certificate public key hash), not `insecure=1`
+- Only vless and hysteria2 inbounds produce links (tun and others skipped)
+- Tests with sample generated configs
