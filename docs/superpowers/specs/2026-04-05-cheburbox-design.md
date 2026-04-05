@@ -21,15 +21,16 @@ Declarative configuration (`cheburbox.json` per server) with automatic credentia
 ### Pipeline
 
 ```
-discover → load & parse → build DAG → topological sort → resolve & generate → post-process
+discover → load & parse → build DAG → topological sort → resolve & generate (in-memory) → batch write → post-process
 ```
 
 1. **Discover** — find all direct child directories containing `cheburbox.json` (or `.cheburbox.jsonnet`) under the project root. Only one level deep.
-2. **Load & Parse** — eval jsonnet if needed, parse cheburbox.json into Go structs, read existing config.json for persistence.
+2. **Load & Parse** — eval jsonnet if needed, parse cheburbox.json into cheburbox Go structs, read existing config.json for credential persistence.
 3. **Build DAG** — outbound references to other servers create edges; detect cycles → error.
 4. **Topological Sort** — determine generation order (servers with no outgoing refs first).
-5. **Resolve & Generate** — for each server in order: create cross-server users on targets, generate certs, build config.json. All configs generated in memory first; written to disk only after all servers succeed (atomic batch).
-6. **Post-process** — compile local rule-sets, validate with `sing-box check`.
+5. **Resolve & Generate** — for each server in order: create cross-server users on targets in memory, generate certs in memory, build config.json in memory. All processing happens in memory — no disk writes.
+6. **Batch Write** — only after ALL servers in the generation set have been successfully processed, write all files (config.json, certs, .srs) to disk. If any server fails, nothing is written.
+7. **Post-process** — validate with `sing-box check` on written configs.
 
 ### Known Limitations
 
@@ -43,14 +44,28 @@ Cheburbox runs locally on the developer machine. It reads all server directories
 
 No explicit `role` field. A server is a "server" if it has inbounds. A "client" is just a server with outbounds referencing other servers and optionally a tun inbound. Cheburbox treats them identically.
 
-### Atomic Batch Write
+### Two-Pass Atomic Write
 
-When generating configs, all servers are processed in memory. No files are written to disk until every server in the generation set has been successfully generated. If any server fails, generation stops immediately and no files are modified. This ensures consistency across the project.
+Generation uses a two-pass approach to ensure consistency:
+
+- **Pass 1 (in-memory)**: All servers processed in topological order entirely in memory. Cross-server user provisioning adds users to in-memory target configs. Credentials, certs, and rule-sets are all generated in memory.
+- **Pass 2 (batch write)**: Only after all servers succeed, write all files to disk atomically. If any server fails in pass 1, no files are modified.
+
+### Two Sets of Structs
+
+Cheburbox uses two distinct sets of Go structs:
+
+- **Cheburbox structs** (`internal/config/cheburbox.go`): user-facing, simplified schema for `cheburbox.json` input. These are our own types with no sing-box dependency for unmarshaling.
+- **Sing-box option structs** (`github.com/sagernet/sing-box/option`): used only for producing final `config.json` output. These require context-aware unmarshaling with registries.
+- A conversion layer translates cheburbox structs → sing-box option structs during generation.
+
+This separation exists because sing-box option structs use `context.Context`-aware JSON unmarshaling with protocol registries, making them unsuitable for direct use as input types.
 
 ## 3. cheburbox.json Schema
 
 ```jsonc
 {
+  "version": 1,
   "endpoint": "138.124.181.194",
 
   "log": {
@@ -145,14 +160,20 @@ When generating configs, all servers are processed in memory. No files are writt
 }
 ```
 
+### Top-Level Fields
+
+- **version** — required, must be `1`. Reserved for future schema evolution.
+- **endpoint** — the public IP or domain name of this server. Required for servers with inbounds (other servers use it to connect). Used as default `server` address in outbounds that reference this server.
+
 ### Inbound Details
 
 - **users** — list of names (strings). Credentials (uuid/password) are generated or read from existing config.json (persistence).
-- **vless tls.reality** — `private_key` and `public_key` generated via sing-box library (x25519). `short_id` persisted.
+- **vless tls.reality** — `private_key` and `public_key` generated via Go stdlib `crypto/ecdh` (x25519). `short_id` persisted.
 - **hysteria2 tls** — `server_name` binds to certificate CN/SAN. If `server_name` changes, certificate is regenerated. Multiple hysteria2 inbounds with different domains produce separate cert/key files (e.g., `cert_hy2-in.pem`, `key_hy2-in.pem`).
 - **hysteria2 obfs** — password generated and persisted.
 - **tun** — full sing-box tun config, no special handling. Just another inbound type.
 - **Certificates** — self-signed, auto-generated if missing. Cheburbox uses `crypto/x509` + `crypto/ed25519` from Go stdlib.
+- Certificate paths in generated config.json use relative filenames only (e.g., `cert_hy2-in.pem`). sing-box resolves relative to config.json location.
 
 ### Extensible Inbound Architecture
 
@@ -165,7 +186,7 @@ Inbound generators follow a plugin-like interface to allow adding new protocol t
 - **inbound** — (vless/hysteria2) target inbound tag on the target server.
 - **user** — (vless/hysteria2) optional. Default: current server directory name.
 - **endpoint** — (vless/hysteria2) optional override. Default: target server's `endpoint` field from its cheburbox.json.
-- **flow** — (vless) default: `xtls-rprx-vision`. Explicit string `"null"` = omit field from generated config.
+- **flow** — (vless) always explicit in cheburbox.json. Default: `xtls-rprx-vision`. Explicit string `"null"` = omit field from generated config.
 - **domain_resolver** — auto-filled from DNS server marked `default_resolver: true`. Filled on all outbound types. DNS section is mandatory in cheburbox.json.
 
 ### DNS Details
@@ -181,8 +202,9 @@ Inbound generators follow a plugin-like interface to allow adding new protocol t
 - `rule_sets` — remote rule-sets with URL, format, download_detour, update_interval.
 - `custom_rule_sets` — list of tags for local rule-sets (extension.json → compiled to .srs).
 - `rules` — route rules as per sing-box schema. Passed through without parsing.
-- Local rule-sets compiled via sing-box library rule-set compile. Source format: standard sing-box rule-set JSON. Output: `.srs` file in the same server directory.
+- Local rule-sets compiled via sing-box `common/srs` package. Source format: standard sing-box rule-set JSON. Output: `.srs` file in the same server directory.
 - DRY for shared rule-set definitions handled via jsonnet, not by cheburbox.
+- Rule-set compilation happens automatically during `generate` for all `*.json` rule-set source files found in the server directory.
 
 ## 4. Jsonnet Integration
 
@@ -205,14 +227,19 @@ When generating config for a server:
 1. If `config.json` exists, parse it and extract all credentials.
 2. If a credential is missing (new user, new inbound), generate it.
 
+### User Lifecycle
+
+- **Additive by default**: cheburbox only adds users and credentials. Users/credentials that exist in config.json but are not listed in cheburbox.json are preserved.
+- **`--clean` flag**: when passed to `generate`, removes users/credentials that exist in config.json but are no longer declared in cheburbox.json. This applies to both local users and cross-server provisioned users.
+
 ### What is Persisted
 
 | Object | Key | Generation Method |
 |--------|-----|-------------------|
-| vless user (inbound) | `uuid` | sing-box library |
+| vless user (inbound) | `uuid` | `github.com/gofrs/uuid/v5` |
 | hysteria2 user (inbound) | `password` | 24 bytes, base64 encoded |
 | hysteria2 obfs | `password` | 24 bytes, base64 encoded |
-| reality keypair | `private_key`, `public_key` | sing-box library (x25519) |
+| reality keypair | `private_key`, `public_key` | Go stdlib `crypto/ecdh` (x25519) |
 | reality short_id | hex string array | random 1-16 bytes, hex encoded |
 | TLS cert/key (hysteria2) | `cert_<tag>.pem`, `key_<tag>.pem` | self-signed, CN = server_name |
 
@@ -220,12 +247,12 @@ When generating config for a server:
 
 When outbound references another server (e.g., `server: sp-p-2, inbound: vless-in, user: ru-p-2`):
 
-1. Read target server's config.json.
+1. Look up target server's in-memory config (already generated by topological order).
 2. Check if user `ru-p-2` exists in inbound `vless-in`.
 3. If exists — extract credentials (uuid/password).
-4. If not — generate credentials, add user to target server's inbound, write updated config.json.
+4. If not — generate credentials, add user to target server's in-memory inbound config.
 
-This is why topological sort matters: the target server's config.json must be generated before the source server's. When using `--server`, all upstream dependencies are generated transitively.
+This is why topological sort matters: the target server's config must be generated (in memory) before the source server's. When using `--server`, all upstream dependencies are generated transitively.
 
 A single user (e.g., `ru-p-2`) may exist in multiple inbounds (vless and hysteria2) on the same target server. This is valid and expected.
 
@@ -233,7 +260,7 @@ A single user (e.g., `ru-p-2`) may exist in multiple inbounds (vless and hysteri
 
 - Certificates are stored as files in the server directory.
 - Filename pattern: `cert_<inbound-tag>.pem`, `key_<inbound-tag>.pem` (for hysteria2 inbounds). For vless with reality, only keypair (in config.json, not files).
-- On generation, cheburbox reads existing cert, checks CN/SAN against `tls.server_name`. If mismatch — regenerate.
+- On generation, cheburbox reads existing cert from disk, checks CN/SAN against `tls.server_name`. If mismatch — regenerate.
 - First generation: if no cert exists, create self-signed cert with CN = `tls.server_name`.
 
 ## 6. CLI Commands
@@ -247,22 +274,27 @@ Global flags:
 
 Commands:
 
-  generate [--server <name>] [--all] [--dry-run]
+  generate [--server <name>] [--all] [--clean] [--dry-run]
     Generate config.json for specified server(s).
     --all: all servers (default)
     --server <name>: generate only this server and its upstream dependencies (transitively).
       All dependencies must be declared (cheburbox.json exists with required inbounds).
-    --dry-run: stdout only, no file writes. Output format: separate JSON blocks
-      with headers (=== server-name/config.json ===).
+    --clean: remove users/credentials from generated config.json that are no longer
+      declared in cheburbox.json. Without this flag, generation is additive only.
+    --dry-run: stdout only, no file writes. Output: JSON array of objects, each with
+      {"server": "<name>", "files": [{"path": "<relative>", "content": "<string>"}]}.
+      Binary files (.srs) are base64-encoded.
 
   links [--server <name>] [--user <name>] [--inbound <tag>] [--format json|uri]
     Export user configs from generated config.json.
     Requires config.json to exist — run generate first.
-    Default: all users on specified server/inbound.
+    Default (no flags): export all users from all servers.
+    --server <name>: restrict to specific server.
     --format json: ready-to-use sing-box outbound configs for client config.
     --format uri (default): vless:// and hysteria2:// share links.
       Hysteria2 links use pin-sha256= parameter (certificate public key hash),
       not insecure=1.
+    Only vless and hysteria2 inbounds produce links (tun and others are skipped).
 
   validate [--server <name>] [--all]
     Two-phase validation:
@@ -270,11 +302,8 @@ Commands:
     2. sing-box check on existing config.json files (skipped if config.json missing).
 
   diff [--server <name>]
-    Show diff between current config.json and what would be generated.
+    Show unified diff between current config.json and what would be generated.
     Implemented as in-memory generation + unified diff against disk file.
-
-  gen-cert [--server <name>] [--inbound <tag>]
-    Explicit certificate generation/regeneration for hysteria2 inbound.
 
   init [--server <name>]
     Create a full example cheburbox.json template in server directory.
@@ -302,22 +331,24 @@ cheburbox/
 ├── cmd/cheburbox/main.go
 ├── internal/
 │   ├── config/
-│   │   ├── cheburbox.go       # cheburbox.json Go structs
+│   │   ├── cheburbox.go       # cheburbox.json Go structs (our own types)
 │   │   ├── load.go            # discover, jsonnet eval, parse
-│   │   └── persistence.go     # read/write credentials from/to config.json
+│   │   └── persistence.go     # read credentials from config.json
 │   ├── generate/
 │   │   ├── graph.go           # DAG build, topological sort, cycle detection
-│   │   ├── server.go          # generate server config.json
-│   │   ├── inbound.go         # vless, hysteria2, tun
-│   │   ├── outbound.go        # direct, vless, hysteria2, urltest, selector
-│   │   ├── dns.go             # dns section
-│   │   ├── route.go           # route + rule-sets
-│   │   └── certs.go           # TLS cert generation, validation, rotation
+│   │   ├── server.go          # orchestrate server config generation
+│   │   ├── convert.go         # cheburbox structs → sing-box option structs
+│   │   ├── inbound.go         # vless, hysteria2, tun generators
+│   │   ├── outbound.go        # direct, vless, hysteria2, urltest, selector generators
+│   │   ├── dns.go             # dns section passthrough
+│   │   ├── route.go           # route + rule-sets passthrough
+│   │   ├── certs.go           # TLS cert generation, validation, rotation
+│   │   └── credentials.go     # UUID, password, x25519 keypair generation
 │   ├── links/
 │   │   ├── vless.go           # vless:// URI builder
 │   │   └── hysteria2.go       # hysteria2:// URI builder
 │   ├── ruleset/
-│   │   └── compile.go         # wrap sing-box rule-set compile
+│   │   └── compile.go         # wrap sing-box common/srs compile
 │   └── validate/
 │       └── check.go           # consistency checks + sing-box config check
 ├── go.mod
@@ -328,13 +359,13 @@ cheburbox/
 
 - `github.com/spf13/cobra` — CLI framework
 - `github.com/google/go-jsonnet` — jsonnet evaluation
-- `github.com/sagernet/sing-box` — Go library for:
-  - `option` package — sing-box config Go structs (reuse, not rewrite)
-  - UUID generation
-  - X25519 keypair generation (reality)
-  - Rule-set compile
-  - Config check (`sing-box check`)
-- Go stdlib: `crypto/x509`, `crypto/ed25519`, `encoding/pem` — self-signed certificate generation
+- `github.com/sagernet/sing-box` v1.13.5 — direct dependency from GitHub:
+  - `option` package — sing-box config Go structs (for output generation only)
+  - `common/srs` package — rule-set compile (`srs.Write`)
+  - `include` + root package — config check (`box.New` with `include.Context`)
+  - `constant` package — enum values (RuleSetVersion, etc.)
+- `github.com/gofrs/uuid/v5` — UUID generation (sing-box compatible)
+- Go stdlib: `crypto/ecdh` (x25519 keypairs), `crypto/x509`, `crypto/ed25519`, `encoding/pem` — certificate generation
 
 ### Working Project Layout
 
@@ -362,9 +393,11 @@ sing-box/
 
 Cheburbox checks at generation time:
 
+- `version` field is present and equals `1`
 - No circular dependencies between servers
 - Outbound `server` references an existing server directory (direct child of project root)
 - Outbound `inbound` references an existing inbound on target server
 - No two hysteria2 inbounds on same server share the same `tls.server_name` (would conflict on cert files)
 - DNS section is present
 - `default_resolver: true` is set on at most one DNS server
+- `endpoint` is present for servers with inbounds
