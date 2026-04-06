@@ -187,7 +187,7 @@ func findPersistedUser(
 func generateUserCreds(inboundType string) UserCreds {
 	switch inboundType {
 	case inboundTypeVLESS:
-		return UserCreds{UUID: GenerateUUID()}
+		return UserCreds{UUID: GenerateUUID(), Flow: "xtls-rprx-vision"}
 	case inboundTypeHysteria2:
 		return UserCreds{Password: GeneratePassword()}
 	default:

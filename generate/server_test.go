@@ -207,6 +207,18 @@ func TestGenerateServerWithHysteria2Certs(t *testing.T) {
 	}
 }
 
+func TestGenerateUserCredsDefaultFlow(t *testing.T) {
+	t.Parallel()
+
+	creds := generateUserCreds("vless")
+	if creds.UUID == "" {
+		t.Error("expected non-empty UUID for vless")
+	}
+	if creds.Flow != "xtls-rprx-vision" {
+		t.Errorf("Flow = %q, want xtls-rprx-vision", creds.Flow)
+	}
+}
+
 func TestResolveCredentials(t *testing.T) {
 	t.Parallel()
 
