@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,9 +12,18 @@ import (
 
 	"github.com/Arsolitt/cheburbox/config"
 	"github.com/Arsolitt/cheburbox/generate"
+	"github.com/Arsolitt/cheburbox/ruleset"
 )
 
 func main() {
+	if err := NewRootCommand().Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// NewRootCommand creates and returns the root cobra command for cheburbox.
+func NewRootCommand() *cobra.Command {
 	var projectRoot string
 	var jpath string
 
@@ -51,10 +61,32 @@ func main() {
 
 	rootCmd.AddCommand(generateCmd)
 
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	var compileInput string
+	var compileOutput string
+	var compileServer string
+
+	compileCmd := &cobra.Command{
+		Use:   "compile",
+		Short: "Compile local rule-set from JSON to binary .srs format.",
+		RunE: func(command *cobra.Command, _ []string) error {
+			return runRuleSetCompile(command.OutOrStdout(), projectRoot, compileServer, compileInput, compileOutput)
+		},
 	}
+
+	compileCmd.Flags().
+		StringVar(&compileServer, "server", "", "server name (auto-compiles all rule-sets in server directory)")
+	compileCmd.Flags().StringVar(&compileInput, "input", "", "input JSON rule-set file path")
+	compileCmd.Flags().StringVar(&compileOutput, "output", "", "output .srs file path")
+
+	ruleSetCmd := &cobra.Command{
+		Use:   "rule-set",
+		Short: "Manage local rule-sets.",
+	}
+
+	ruleSetCmd.AddCommand(compileCmd)
+	rootCmd.AddCommand(ruleSetCmd)
+
+	return rootCmd
 }
 
 func runGenerate(w io.Writer, projectRoot string, jpath string, serverName string, clean bool) error {
@@ -122,6 +154,88 @@ func generateServer(w io.Writer, projectRoot string, jpath string, name string, 
 	}
 
 	fmt.Fprintf(w, "Generated %d files for server %s\n", len(result.Files), name)
+
+	return nil
+}
+
+func runRuleSetCompile(w io.Writer, projectRoot string, serverName string, input string, output string) error {
+	if serverName != "" {
+		return runRuleSetCompileServer(w, projectRoot, serverName)
+	}
+
+	if input == "" || output == "" {
+		return errors.New("--input and --output are required when --server is not specified")
+	}
+
+	return runRuleSetCompileSingle(w, input, output)
+}
+
+func runRuleSetCompileSingle(w io.Writer, input string, output string) error {
+	content, err := os.ReadFile(input)
+	if err != nil {
+		return fmt.Errorf("read input: %w", err)
+	}
+
+	if err := ruleset.Compile(content, output); err != nil {
+		return fmt.Errorf("compile: %w", err)
+	}
+
+	fmt.Fprintf(w, "Compiled %s -> %s\n", input, output)
+
+	return nil
+}
+
+func runRuleSetCompileServer(w io.Writer, projectRoot string, serverName string) error {
+	proj := projectRoot
+	if proj == "" {
+		var err error
+		proj, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("get working directory: %w", err)
+		}
+	}
+
+	dir := filepath.Join(proj, serverName)
+	jpathAbs := resolveJPath(proj, "")
+
+	cfg, err := config.LoadServerWithJsonnet(dir, jpathAbs)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	if cfg.Route == nil || len(cfg.Route.CustomRuleSets) == 0 {
+		fmt.Fprintln(w, "no custom rule-sets defined for server")
+		return nil
+	}
+
+	sources, err := ruleset.FindSourceFiles(dir, cfg.Route.CustomRuleSets)
+	if err != nil {
+		return fmt.Errorf("discover rule-set sources: %w", err)
+	}
+
+	if len(sources) == 0 {
+		fmt.Fprintln(w, "no rule-set source files found in server directory")
+		return nil
+	}
+
+	ruleSetDir := filepath.Join(dir, "rule-set")
+	if err := os.MkdirAll(ruleSetDir, 0o750); err != nil {
+		return fmt.Errorf("create rule-set directory: %w", err)
+	}
+
+	for _, src := range sources {
+		content, err := os.ReadFile(src.Path)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", src.Name, err)
+		}
+
+		outputPath := filepath.Join(ruleSetDir, src.Name+".srs")
+		if err := ruleset.Compile(content, outputPath); err != nil {
+			return fmt.Errorf("compile %s: %w", src.Name, err)
+		}
+
+		fmt.Fprintf(w, "Compiled %s -> %s\n", src.Name, outputPath)
+	}
 
 	return nil
 }

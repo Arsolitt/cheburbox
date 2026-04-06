@@ -218,6 +218,31 @@ func TestResolveJPath(t *testing.T) {
 	}
 }
 
+func TestRuleSetCompileCommand(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	ruleSetSource := `{"rules": [{"domain_suffix": [".example.com"]}]}`
+	inputPath := filepath.Join(dir, "test.json")
+	if err := os.WriteFile(inputPath, []byte(ruleSetSource), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	outputPath := filepath.Join(dir, "test.srs")
+
+	rootCmd := NewRootCommand()
+	rootCmd.SetArgs([]string{"rule-set", "compile", "--input", inputPath, "--output", outputPath})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	if _, err := os.Stat(outputPath); err != nil {
+		t.Fatalf("output file not created: %v", err)
+	}
+}
+
 func setupServer(t *testing.T, root string, name string, content string) {
 	t.Helper()
 	dir := filepath.Join(root, name)
