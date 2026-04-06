@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,15 +13,14 @@ func TestGenerateRun(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup     func(t *testing.T, root string)
-		name      string
-		server    string
-		wantOut   []string
-		wantLines []string
-		wantErr   bool
+		setup   func(t *testing.T, root string)
+		name    string
+		server  string
+		wantOut []string
+		wantErr bool
 	}{
 		{
-			name: "generate all discovers and validates servers",
+			name: "generate all discovers and generates servers",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
 				setupServer(t, root, "server-a", `{
@@ -41,9 +41,8 @@ func TestGenerateRun(t *testing.T) {
 					"outbounds": [{"type": "direct", "tag": "direct"}]
 				}`)
 			},
-			server:    "",
-			wantOut:   []string{"server-a", "server-b"},
-			wantLines: []string{"  Version:  1\n", "  Inbounds: 1\n", "  Outbounds: 1\n"},
+			server:  "",
+			wantOut: []string{"Generated 1 files for server server-a", "Generated 1 files for server server-b"},
 		},
 		{
 			name: "generate specific server",
@@ -59,7 +58,7 @@ func TestGenerateRun(t *testing.T) {
 				}`)
 			},
 			server:  "server-a",
-			wantOut: []string{"server-a"},
+			wantOut: []string{"Generated 1 files for server server-a"},
 		},
 		{
 			name:    "generate nonexistent server returns error",
@@ -88,7 +87,7 @@ func TestGenerateRun(t *testing.T) {
 			tt.setup(t, root)
 
 			var buf bytes.Buffer
-			err := runGenerate(&buf, root, "lib", tt.server)
+			err := runGenerate(&buf, root, "lib", tt.server, false)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -104,12 +103,93 @@ func TestGenerateRun(t *testing.T) {
 					t.Errorf("output missing %q\nGot:\n%s", want, output)
 				}
 			}
-			for _, wantLine := range tt.wantLines {
-				if !strings.Contains(output, wantLine) {
-					t.Errorf("output missing line %q\nGot:\n%s", wantLine, output)
-				}
-			}
 		})
+	}
+}
+
+func TestGenerateWritesConfig(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	setupServer(t, root, "my-server", `{
+		"version": 1,
+		"endpoint": "1.2.3.4",
+		"dns": {
+			"servers": [{"type": "local", "tag": "dns-local"}],
+			"final": "dns-local"
+		},
+		"inbounds": [{"tag": "vless-in", "type": "vless", "listen_port": 443, "users": ["alice"]}],
+		"outbounds": [{"type": "direct", "tag": "direct"}]
+	}`)
+
+	var buf bytes.Buffer
+	err := runGenerate(&buf, root, "lib", "my-server", false)
+	if err != nil {
+		t.Fatalf("runGenerate: %v", err)
+	}
+
+	configPath := filepath.Join(root, "my-server", "config.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config.json: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("parse config.json: %v", err)
+	}
+
+	for _, section := range []string{"dns", "route", "inbounds", "outbounds", "experimental"} {
+		if parsed[section] == nil {
+			t.Errorf("expected %q section in generated config.json", section)
+		}
+	}
+
+	if !strings.Contains(buf.String(), "Generated 1 files for server my-server") {
+		t.Errorf("expected summary output, got: %s", buf.String())
+	}
+}
+
+func TestGenerateCredentialPersistence(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	setupServer(t, root, "srv", `{
+		"version": 1,
+		"endpoint": "1.2.3.4",
+		"dns": {
+			"servers": [{"type": "local", "tag": "dns-local"}],
+			"final": "dns-local"
+		},
+		"inbounds": [{"tag": "vless-in", "type": "vless", "listen_port": 443, "users": ["alice"]}],
+		"outbounds": [{"type": "direct", "tag": "direct"}]
+	}`)
+
+	var buf1 bytes.Buffer
+	err := runGenerate(&buf1, root, "lib", "srv", false)
+	if err != nil {
+		t.Fatalf("first runGenerate: %v", err)
+	}
+
+	configPath := filepath.Join(root, "srv", "config.json")
+	data1, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config.json after first run: %v", err)
+	}
+
+	var buf2 bytes.Buffer
+	err = runGenerate(&buf2, root, "lib", "srv", false)
+	if err != nil {
+		t.Fatalf("second runGenerate: %v", err)
+	}
+
+	data2, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config.json after second run: %v", err)
+	}
+
+	if string(data1) != string(data2) {
+		t.Error("credentials not persisted: config.json differs between runs")
 	}
 }
 

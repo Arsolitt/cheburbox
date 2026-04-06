@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Arsolitt/cheburbox/config"
+	"github.com/Arsolitt/cheburbox/generate"
 )
 
 func main() {
@@ -27,10 +28,11 @@ func main() {
 	rootCmd.PersistentFlags().StringVar(&jpath, "jpath", "lib", "jsonnet library path")
 
 	var serverName string
+	var clean bool
 
 	generateCmd := &cobra.Command{
 		Use:   "generate",
-		Short: "Load and validate server configurations.",
+		Short: "Generate sing-box configuration files for servers.",
 		RunE: func(command *cobra.Command, _ []string) error {
 			proj := projectRoot
 			if proj == "" {
@@ -40,11 +42,12 @@ func main() {
 					return fmt.Errorf("get working directory: %w", err)
 				}
 			}
-			return runGenerate(command.OutOrStdout(), proj, jpath, serverName)
+			return runGenerate(command.OutOrStdout(), proj, jpath, serverName, clean)
 		},
 	}
 
 	generateCmd.Flags().StringVar(&serverName, "server", "", "generate only this server")
+	generateCmd.Flags().BoolVar(&clean, "clean", false, "remove undeclared users/credentials")
 
 	rootCmd.AddCommand(generateCmd)
 
@@ -54,15 +57,15 @@ func main() {
 	}
 }
 
-func runGenerate(w io.Writer, projectRoot string, jpath string, serverName string) error {
+func runGenerate(w io.Writer, projectRoot string, jpath string, serverName string, clean bool) error {
 	if serverName != "" {
-		return runGenerateServer(w, projectRoot, jpath, serverName)
+		return runGenerateServer(w, projectRoot, jpath, serverName, clean)
 	}
 
-	return runGenerateAll(w, projectRoot, jpath)
+	return runGenerateAll(w, projectRoot, jpath, clean)
 }
 
-func runGenerateAll(w io.Writer, projectRoot string, jpath string) error {
+func runGenerateAll(w io.Writer, projectRoot string, jpath string, clean bool) error {
 	servers, err := config.Discover(projectRoot)
 	if err != nil {
 		return fmt.Errorf("discover servers: %w", err)
@@ -74,7 +77,7 @@ func runGenerateAll(w io.Writer, projectRoot string, jpath string) error {
 	}
 
 	for _, name := range servers {
-		if err := loadAndPrint(w, projectRoot, jpath, name); err != nil {
+		if err := generateServer(w, projectRoot, jpath, name, clean); err != nil {
 			return fmt.Errorf("server %s: %w", name, err)
 		}
 	}
@@ -82,16 +85,16 @@ func runGenerateAll(w io.Writer, projectRoot string, jpath string) error {
 	return nil
 }
 
-func runGenerateServer(w io.Writer, projectRoot string, jpath string, serverName string) error {
+func runGenerateServer(w io.Writer, projectRoot string, jpath string, serverName string, clean bool) error {
 	dir := filepath.Join(projectRoot, serverName)
 	if _, err := os.Stat(dir); err != nil {
 		return fmt.Errorf("server %s: %w", serverName, err)
 	}
 
-	return loadAndPrint(w, projectRoot, jpath, serverName)
+	return generateServer(w, projectRoot, jpath, serverName, clean)
 }
 
-func loadAndPrint(w io.Writer, projectRoot string, jpath string, name string) error {
+func generateServer(w io.Writer, projectRoot string, jpath string, name string, clean bool) error {
 	dir := filepath.Join(projectRoot, name)
 	jpathAbs := resolveJPath(projectRoot, jpath)
 
@@ -104,12 +107,21 @@ func loadAndPrint(w io.Writer, projectRoot string, jpath string, name string) er
 		return fmt.Errorf("validate: %w", err)
 	}
 
-	fmt.Fprintf(w, "Server: %s\n", name)
-	fmt.Fprintf(w, "  Version:  %d\n", cfg.Version)
-	fmt.Fprintf(w, "  Endpoint: %s\n", cfg.Endpoint)
-	fmt.Fprintf(w, "  Inbounds: %d\n", len(cfg.Inbounds))
-	fmt.Fprintf(w, "  Outbounds: %d\n", len(cfg.Outbounds))
-	fmt.Fprintf(w, "  DNS servers: %d\n", len(cfg.DNS.Servers))
+	genCfg := generate.GenerateConfig{Clean: clean}
+	result, err := generate.GenerateServer(dir, cfg, genCfg)
+	if err != nil {
+		return fmt.Errorf("generate: %w", err)
+	}
+
+	for _, f := range result.Files {
+		path := filepath.Join(dir, f.Path)
+		//nolint:gosec // config files must be readable by the sing-box process.
+		if err := os.WriteFile(path, f.Content, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", f.Path, err)
+		}
+	}
+
+	fmt.Fprintf(w, "Generated %d files for server %s\n", len(result.Files), name)
 
 	return nil
 }
