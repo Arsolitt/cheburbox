@@ -57,7 +57,7 @@ Cheburbox uses two distinct sets of Go structs:
 
 - **Cheburbox structs** (`internal/config/cheburbox.go`): user-facing, simplified schema for `cheburbox.json` input. These are our own types with no sing-box dependency for unmarshaling.
 - **Sing-box option structs** (`github.com/sagernet/sing-box/option`): used only for producing final `config.json` output. These require context-aware unmarshaling with registries.
-- A conversion layer translates cheburbox structs → sing-box option structs during generation.
+- A conversion layer translates cheburbox structs → sing-box option structs during generation. The planned approach is to marshal cheburbox structs to JSON and unmarshal into sing-box option structs (leveraging their registry-based unmarshaling). This may be revised during Phase 2 implementation if the sing-box API supports direct struct construction.
 
 This separation exists because sing-box option structs use `context.Context`-aware JSON unmarshaling with protocol registries, making them unsuitable for direct use as input types.
 
@@ -75,7 +75,7 @@ This separation exists because sing-box option structs use `context.Context`-awa
 
   "dns": {
     "servers": [
-      { "type": "local", "tag": "dns-local", "default_resolver": true },
+      { "type": "local", "tag": "dns-local" },
       { "type": "tls", "tag": "dns-remote", "server": "8.8.8.8", "server_port": 853, "detour": "direct" }
     ],
     "rules": [ ... ],
@@ -169,7 +169,7 @@ This separation exists because sing-box option structs use `context.Context`-awa
 
 - **users** — list of names (strings). Credentials (uuid/password) are generated or read from existing config.json (persistence).
 - **vless tls.reality** — `private_key` and `public_key` generated via Go stdlib `crypto/ecdh` (x25519). `short_id` persisted.
-- **hysteria2 tls** — `server_name` binds to certificate CN/SAN. If `server_name` changes, certificate is regenerated. Multiple hysteria2 inbounds with different domains produce separate cert/key files (e.g., `cert_hy2-in.pem`, `key_hy2-in.pem`).
+- **hysteria2 tls** — `server_name` binds to certificate SAN. If `server_name` changes, certificate is regenerated. Multiple hysteria2 inbounds with different domains produce separate cert/key files (e.g., `cert_hy2-in.pem`, `key_hy2-in.pem`).
 - **hysteria2 obfs** — password generated and persisted.
 - **tun** — full sing-box tun config, no special handling. Just another inbound type.
 - **Certificates** — self-signed, auto-generated if missing. Cheburbox uses `crypto/x509` + `crypto/ed25519` from Go stdlib.
@@ -187,7 +187,7 @@ Inbound generators follow a plugin-like interface to allow adding new protocol t
 - **user** — (vless/hysteria2) optional. Default: current server directory name.
 - **endpoint** — (vless/hysteria2) optional override. Default: target server's `endpoint` field from its cheburbox.json.
 - **flow** — (vless) always explicit in cheburbox.json. Default: `xtls-rprx-vision`. Explicit string `"null"` = omit field from generated config.
-- **domain_resolver** — auto-filled from DNS server marked `default_resolver: true`. Filled on all outbound types. DNS section is mandatory in cheburbox.json.
+- **pin-sha256** — (hysteria2 outbound) auto-computed by cheburbox from the target server's certificate public key. Not specified in cheburbox.json.
 - **selector** — `type: "selector"`, `tag`, `outbounds` (list of outbound tags). No additional fields.
 
 ```jsonc
@@ -214,15 +214,15 @@ Inbound generators follow a plugin-like interface to allow adding new protocol t
 
 ### DNS Details
 
-- Full DNS config fully parsed into cheburbox Go structs (not raw passthrough).
-- `default_resolver: true` on a DNS server marks it as the default `domain_resolver` for all outbounds.
+- Full DNS config fully parsed into cheburbox Go structs, matching the sing-box DNS schema.
 - DNS section is mandatory in every cheburbox.json.
-- Cheburbox structs model the complete sing-box DNS schema to enable validation and auto-fill of `domain_resolver`.
+- Cheburbox structs model the complete sing-box DNS schema to enable validation.
+- No `default_resolver` concept. Each outbound that needs a domain resolver specifies it explicitly, or relies on `default_domain_resolver` in the route section.
 
 ### Route Details
 
 - `auto_detect_interface` — default: `true`, can be overridden.
-- `default_domain_resolver` — auto-filled from `default_resolver` DNS server.
+- `default_domain_resolver` — set explicitly in cheburbox.json to the tag of a DNS server to use as default domain resolver. If omitted, no default is set.
 - `rule_sets` — remote rule-sets with URL, format, download_detour, update_interval. Fully parsed into cheburbox structs.
 - `custom_rule_sets` — list of tags for local rule-sets (extension.json → compiled to .srs).
 - `rules` — route rules fully parsed into cheburbox Go structs (not raw passthrough).
@@ -262,12 +262,12 @@ Credential extraction uses sing-box option structs (the same structs used for ou
 
 | Object | Key | Generation Method |
 |--------|-----|-------------------|
-| vless user (inbound) | `uuid` | `github.com/gofrs/uuid/v5` |
+| vless user (inbound) | `uuid` | `github.com/gofrs/uuid/v5` (`uuid.NewV4()`, random) |
 | hysteria2 user (inbound) | `password` | 24 bytes, base64 encoded |
 | hysteria2 obfs | `password` | 24 bytes, base64 encoded |
 | reality keypair | `private_key`, `public_key` | Go stdlib `crypto/ecdh` (x25519) |
 | reality short_id | hex string array | random 1-16 bytes, hex encoded |
-| TLS cert/key (hysteria2) | `cert_<tag>.pem`, `key_<tag>.pem` | self-signed, CN = server_name |
+| TLS cert/key (hysteria2) | `cert_<tag>.pem`, `key_<tag>.pem` | self-signed, SAN = server_name |
 
 ### Cross-Server User Provisioning
 
@@ -286,8 +286,8 @@ A single user (e.g., `ru-p-2`) may exist in multiple inbounds (vless and hysteri
 
 - Certificates are stored as files in the server directory.
 - Filename pattern: `cert_<inbound-tag>.pem`, `key_<inbound-tag>.pem` (for hysteria2 inbounds). For vless with reality, only keypair (in config.json, not files).
-- On generation, cheburbox reads existing cert from disk, checks CN/SAN against `tls.server_name`. If mismatch — regenerate.
-- First generation: if no cert exists, create self-signed cert with CN = `tls.server_name`.
+- On generation, cheburbox reads existing cert from disk, checks SAN against `tls.server_name`. If mismatch — regenerate.
+- First generation: if no cert exists, create self-signed cert with SAN = `tls.server_name`. Certificates use SAN (Subject Alternative Name), not CN (deprecated).
 
 ## 6. CLI Commands
 
@@ -300,9 +300,9 @@ Global flags:
 
 Commands:
 
-  generate [--server <name>] [--all] [--clean] [--dry-run]
+  generate [--server <name>] [--clean] [--dry-run]
     Generate config.json for specified server(s).
-    --all: all servers (default)
+    Default (no flags): all servers.
     --server <name>: generate only this server and its upstream dependencies (transitively).
       All dependencies must be declared (cheburbox.json exists with required inbounds).
     --clean: remove users/credentials from generated config.json that are no longer
@@ -345,8 +345,7 @@ Cheburbox automatically adds to every generated config.json:
 
 - `experimental.cache_file.enabled: true, path: "cache.db"` (unless explicitly disabled)
 - `route.auto_detect_interface: true` (unless overridden in cheburbox.json)
-- `route.default_domain_resolver` — from DNS server marked `default_resolver: true`
-- `domain_resolver` on all outbound types — from default resolver DNS
+- `route.default_domain_resolver` — if set in cheburbox.json route section, passed through to generated config
 
 ## 8. Project Structure
 
@@ -390,7 +389,7 @@ cheburbox/
   - `common/srs` package — rule-set compile (`srs.Write`)
   - `include` + root package — config check (`box.New` with `include.Context`)
   - `constant` package — enum values (RuleSetVersion, etc.)
-- `github.com/gofrs/uuid/v5` — UUID generation (sing-box compatible)
+- `github.com/gofrs/uuid/v5` — UUID generation (`uuid.NewV4()`, random UUID v4; v5 is the Go module major version)
 - Go stdlib: `crypto/ecdh` (x25519 keypairs), `crypto/x509`, `crypto/ed25519`, `encoding/pem` — certificate generation
 
 ### Working Project Layout
@@ -425,7 +424,6 @@ Cheburbox checks at generation time:
 - Outbound `inbound` references an existing inbound on target server
 - No two hysteria2 inbounds on same server share the same `tls.server_name` (would conflict on cert files)
 - DNS section is present
-- `default_resolver: true` is set on at most one DNS server
 - `endpoint` is present for servers with inbounds
 
 ## 10. Implementation Phases
@@ -446,16 +444,16 @@ Project skeleton and configuration loading. No generation logic.
 
 Full config generation for a single server (no cross-server dependencies).
 
-- Credential generation: UUID (`gofrs/uuid/v5`), passwords (24 bytes base64), x25519 keypairs (`crypto/ecdh`), short_id
+- Credential generation: UUID v4 (`gofrs/uuid/v5`), passwords (24 bytes base64), x25519 keypairs (`crypto/ecdh`), short_id
 - Inbound generators: vless (with reality), hysteria2 (with TLS certs, obfs, masquerade), tun (passthrough)
-- Outbound generators: direct, vless, hysteria2, urltest, selector
-- DNS section: full parsing, auto-fill `domain_resolver` from `default_resolver` DNS server
+- Outbound generators: direct, vless, hysteria2 (with auto-computed pin-sha256), urltest, selector
+- DNS section: full parsing matching sing-box schema
 - Route section: full parsing, rule-sets, custom rule-sets
-- Conversion layer: cheburbox structs → sing-box option structs
-- Certificate generation: self-signed ed25519 certs via `crypto/x509` + `crypto/ed25519`
-- Certificate lifecycle: read existing cert, check CN/SAN, regenerate on mismatch
+- Conversion layer: cheburbox structs → JSON → sing-box option structs (may be revised based on sing-box API investigation)
+- Certificate generation: self-signed ed25519 certs via `crypto/x509` + `crypto/ed25519` with SAN = server_name
+- Certificate lifecycle: read existing cert, check SAN, regenerate on mismatch
 - Persistence: read credentials from existing `config.json` via sing-box option structs
-- Auto-generated boilerplate: cache_file, auto_detect_interface, domain_resolver
+- Auto-generated boilerplate: cache_file, auto_detect_interface
 - `--clean` flag support
 - Unit tests for all generators and credential logic
 
@@ -472,7 +470,7 @@ Local rule-set compilation.
 
 Config validation without generation.
 
-- Consistency checks: outbound refs resolve, no cycles, credentials present, DNS present, `default_resolver` uniqueness, `endpoint` for servers with inbounds, no duplicate hysteria2 `server_name`
+- Consistency checks: outbound refs resolve, no cycles, credentials present, DNS present, `endpoint` for servers with inbounds, no duplicate hysteria2 `server_name`
 - sing-box config check via Go API (`box.New` with `include.Context`)
 - `validate` command with `--server` and `--all` flags
 - Tests with valid and invalid configs
@@ -486,7 +484,6 @@ Cross-server dependency resolution.
 - Cross-server user provisioning (add users to target server in-memory configs)
 - Batch write: two-pass approach (in-memory generation, then atomic disk write)
 - `--server` flag: generate specified server and transitive upstream dependencies
-- `--all` flag: generate all servers
 - `--dry-run`: stdout JSON output, no disk writes (binary files base64-encoded)
 - Integration tests with multi-server project layouts
 
@@ -508,3 +505,15 @@ Client connection link export.
 - Hysteria2 links use `pin-sha256=` (certificate public key hash), not `insecure=1`
 - Only vless and hysteria2 inbounds produce links (tun and others skipped)
 - Tests with sample generated configs
+
+### Phase 1.1 — Foundation Cleanup
+
+Post-implementation fixes identified after Phase 1 review.
+
+- Replace custom `containsString` helper in `internal/config/load_test.go` with `strings.Contains` from stdlib.
+- Review `Route` type: currently `*Route` (pointer, optional). If route section is always present in practice, consider changing to value type. Decision deferred to Phase 2 planning.
+- `loadServer` function is intentionally unexported. Public API is `LoadServerWithJsonnet`. Credential persistence in Phase 2 will read existing `config.json` via sing-box option structs, not through this loader.
+
+### Implementation Notes
+
+- **sing-box option struct API**: The `github.com/sagernet/sing-box/option` package uses registry-based `context.Context`-aware JSON unmarshaling. Before Phase 2, investigate whether sing-box option structs can be constructed programmatically (direct field assignment) or require marshal→unmarshal through the registry. This determines the conversion layer architecture.
