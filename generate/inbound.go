@@ -105,6 +105,7 @@ func buildVLESSUsers(creds InboundCredentials) []option.VLESSUser {
 
 func buildInboundTLS(tls *config.InboundTLS, creds InboundCredentials) *option.InboundTLSOptions {
 	tlsOpts := &option.InboundTLSOptions{
+		Enabled:    true,
 		ServerName: tls.ServerName,
 		ALPN:       badoption.Listable[string](tls.ALPN),
 	}
@@ -155,6 +156,7 @@ func buildHysteria2Inbound(in config.Inbound, creds InboundCredentials) (option.
 
 	if in.TLS != nil {
 		tlsOpts := &option.InboundTLSOptions{
+			Enabled:         true,
 			ServerName:      in.TLS.ServerName,
 			ALPN:            badoption.Listable[string](in.TLS.ALPN),
 			CertificatePath: "certs/" + in.TLS.ServerName + ".crt",

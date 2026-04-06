@@ -147,6 +147,9 @@ func generateServer(w io.Writer, projectRoot string, jpath string, name string, 
 
 	for _, f := range result.Files {
 		path := filepath.Join(dir, f.Path)
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			return fmt.Errorf("create directory for %s: %w", f.Path, err)
+		}
 		//nolint:gosec // config files must be readable by the sing-box process.
 		if err := os.WriteFile(path, f.Content, 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", f.Path, err)
