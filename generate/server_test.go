@@ -539,6 +539,52 @@ func TestGenerateServerNoCleanPreservesExtraUsers(t *testing.T) {
 	}
 }
 
+func TestGenerateServerCompilesRuleSets(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	ruleSetSource := `{
+  "rules": [
+    {
+      "domain_suffix": [".example.com"]
+    }
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(dir, "extension.json"), []byte(ruleSetSource), 0o644); err != nil {
+		t.Fatalf("write rule-set source: %v", err)
+	}
+
+	cfg := config.Config{
+		Version:  1,
+		Endpoint: "1.2.3.4",
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+		},
+		Route: &config.Route{
+			Final:          "direct",
+			CustomRuleSets: []string{"extension"},
+		},
+	}
+
+	result, err := GenerateServer(dir, cfg, GenerateConfig{})
+	if err != nil {
+		t.Fatalf("GenerateServer: %v", err)
+	}
+
+	srsFile := findFile(result.Files, "rule-set/extension.srs")
+	if srsFile == nil {
+		t.Fatal("rule-set/extension.srs not in result files")
+	}
+	if len(srsFile.Content) == 0 {
+		t.Fatal("rule-set/extension.srs is empty")
+	}
+}
+
 func findFile(files []FileOutput, name string) *FileOutput {
 	for i := range files {
 		if files[i].Path == name {

@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/sagernet/sing-box/include"
@@ -15,6 +16,7 @@ import (
 	singjson "github.com/sagernet/sing/common/json"
 
 	"github.com/Arsolitt/cheburbox/config"
+	"github.com/Arsolitt/cheburbox/ruleset"
 )
 
 // GenerateConfig controls server generation behavior.
@@ -56,6 +58,11 @@ func GenerateServer(dir string, cfg config.Config, genCfg GenerateConfig) (Gener
 	certFiles, err := resolveCertificates(dir, cfg, genCfg.Clean)
 	if err != nil {
 		return GenerateResult{}, fmt.Errorf("resolve certificates: %w", err)
+	}
+
+	ruleSetFiles, err := compileRuleSets(dir, &cfg)
+	if err != nil {
+		return GenerateResult{}, fmt.Errorf("compile rule-sets: %w", err)
 	}
 
 	dnsOpts, err := ConvertDNS(cfg.DNS)
@@ -104,9 +111,10 @@ func GenerateServer(dir string, cfg config.Config, genCfg GenerateConfig) (Gener
 		return GenerateResult{}, fmt.Errorf("marshal config: %w", err)
 	}
 
-	files := make([]FileOutput, 0, 1+len(certFiles))
+	files := make([]FileOutput, 0, 1+len(certFiles)+len(ruleSetFiles))
 	files = append(files, FileOutput{Path: "config.json", Content: configJSON})
 	files = append(files, certFiles...)
+	files = append(files, ruleSetFiles...)
 
 	return GenerateResult{
 		Server: filepath.Base(dir),
@@ -335,4 +343,47 @@ func marshalOptions(opts *option.Options) ([]byte, error) {
 	buf.WriteByte('\n')
 
 	return buf.Bytes(), nil
+}
+
+func compileRuleSets(dir string, cfg *config.Config) ([]FileOutput, error) {
+	if cfg.Route == nil || len(cfg.Route.CustomRuleSets) == 0 {
+		return nil, nil
+	}
+
+	sources, err := ruleset.FindSourceFiles(dir, cfg.Route.CustomRuleSets)
+	if err != nil {
+		return nil, fmt.Errorf("discover rule-set sources: %w", err)
+	}
+
+	if len(sources) == 0 {
+		return nil, nil
+	}
+
+	ruleSetDir := filepath.Join(dir, "rule-set")
+	if err := os.MkdirAll(ruleSetDir, 0o750); err != nil {
+		return nil, fmt.Errorf("create rule-set directory: %w", err)
+	}
+
+	files := make([]FileOutput, 0, len(sources))
+	for _, src := range sources {
+		content, readErr := os.ReadFile(src.Path)
+		if readErr != nil {
+			return nil, fmt.Errorf("read rule-set source %s: %w", src.Name, readErr)
+		}
+
+		outputPath := filepath.Join(ruleSetDir, src.Name+".srs")
+		if err := ruleset.Compile(content, outputPath); err != nil {
+			return nil, fmt.Errorf("compile rule-set %s: %w", src.Name, err)
+		}
+
+		compiledContent, readErr := os.ReadFile(outputPath)
+		if readErr != nil {
+			return nil, fmt.Errorf("read compiled rule-set %s: %w", src.Name, readErr)
+		}
+
+		relPath := filepath.Join("rule-set", src.Name+".srs")
+		files = append(files, FileOutput{Path: relPath, Content: compiledContent})
+	}
+
+	return files, nil
 }
