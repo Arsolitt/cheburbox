@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"bytes"
@@ -88,7 +88,7 @@ func TestGenerateRun(t *testing.T) {
 			tt.setup(t, root)
 
 			var buf bytes.Buffer
-			err := RunGenerate(&buf, root, "lib", tt.server)
+			err := runGenerate(&buf, root, "lib", tt.server)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")

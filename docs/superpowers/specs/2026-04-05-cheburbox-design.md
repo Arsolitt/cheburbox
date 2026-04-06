@@ -353,29 +353,29 @@ Cheburbox automatically adds to every generated config.json:
 
 ```
 cheburbox/
-├── cmd/cheburbox/main.go
-├── internal/
-│   ├── config/
-│   │   ├── cheburbox.go       # cheburbox.json Go structs (our own types)
-│   │   ├── load.go            # discover, jsonnet eval, parse
-│   │   └── persistence.go     # read credentials from config.json
-│   ├── generate/
-│   │   ├── graph.go           # DAG build, topological sort, cycle detection
-│   │   ├── server.go          # orchestrate server config generation
-│   │   ├── convert.go         # cheburbox structs → sing-box option structs
-│   │   ├── inbound.go         # vless, hysteria2, tun generators
-│   │   ├── outbound.go        # direct, vless, hysteria2, urltest, selector generators
-│   │   ├── dns.go             # dns section full parsing + domain_resolver auto-fill
-│   │   ├── route.go           # route + rule-sets full parsing
-│   │   ├── certs.go           # TLS cert generation, validation, rotation
-│   │   └── credentials.go     # UUID, password, x25519 keypair generation
-│   ├── links/
-│   │   ├── vless.go           # vless:// URI builder
-│   │   └── hysteria2.go       # hysteria2:// URI builder
-│   ├── ruleset/
-│   │   └── compile.go         # wrap sing-box common/srs compile
-│   └── validate/
-│       └── check.go           # consistency checks + sing-box config check
+├── cmd/cheburbox/
+│   └── main.go                # CLI entry point and command logic
+├── config/
+│   ├── cheburbox.go            # cheburbox.json Go structs (our own types)
+│   ├── load.go                 # discover, jsonnet eval, parse
+│   └── persistence.go          # read credentials from config.json
+├── generate/
+│   ├── graph.go                # DAG build, topological sort, cycle detection
+│   ├── server.go               # orchestrate server config generation
+│   ├── convert.go              # cheburbox structs → sing-box option structs
+│   ├── inbound.go              # vless, hysteria2, tun generators
+│   ├── outbound.go             # direct, vless, hysteria2, urltest, selector generators
+│   ├── dns.go                  # dns section full parsing + domain_resolver auto-fill
+│   ├── route.go                # route + rule-sets full parsing
+│   ├── certs.go                # TLS cert generation, validation, rotation
+│   └── credentials.go          # UUID, password, x25519 keypair generation
+├── links/
+│   ├── vless.go                # vless:// URI builder
+│   └── hysteria2.go            # hysteria2:// URI builder
+├── ruleset/
+│   └── compile.go              # wrap sing-box common/srs compile
+├── validate/
+│   └── check.go                # consistency checks + sing-box config check
 ├── go.mod
 └── Makefile
 ```

@@ -47,7 +47,7 @@ import (
 
     "github.com/spf13/cobra"
 
-    "github.com/Arsolitt/cheburbox/internal/something"
+    "github.com/Arsolitt/cheburbox/config"
 )
 ```
 
@@ -98,8 +98,8 @@ import (
 - Use `t.TempDir()` instead of `os.TempDir()` in tests
 
 ### Package Organization
-- `cmd/cheburbox/`: CLI entry point (package main)
-- `internal/`: all internal packages — not importable by external code
+- `cmd/cheburbox/`: CLI entry point and command logic (package main)
+- `config/`: cheburbox.json schema types, loading, discovery, and validation (exported library package)
 - Tests: `*_test.go` alongside implementation files
 
 ### Security

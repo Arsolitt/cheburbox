@@ -471,10 +471,6 @@ linters:
           - wrapcheck
           - gocognit
           - nestif
-      - path: 'internal/utils/*'
-        text: 'var-naming: avoid meaningless package names'
-        linters:
-            - revive
       - path: '_test\.go'
         linters:
           - reassign
