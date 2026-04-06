@@ -3,6 +3,8 @@ package generate
 import (
 	"testing"
 
+	"github.com/sagernet/sing-box/option"
+
 	"github.com/Arsolitt/cheburbox/config"
 )
 
@@ -86,5 +88,41 @@ func TestBuildOutboundUnknownType(t *testing.T) {
 	_, err := BuildOutbound(out)
 	if err == nil {
 		t.Fatal("expected error for unknown outbound type")
+	}
+}
+
+func TestBuildDirectOutboundDomainResolver(t *testing.T) {
+	t.Parallel()
+
+	out := config.Outbound{Type: "direct", Tag: "direct", DomainResolver: "dns-local"}
+	result, err := BuildOutbound(out)
+	if err != nil {
+		t.Fatalf("BuildOutbound: %v", err)
+	}
+
+	opts, ok := result.Options.(*option.DirectOutboundOptions)
+	if !ok {
+		t.Fatalf("Options type = %T, want *option.DirectOutboundOptions", result.Options)
+	}
+	if opts.DomainResolver == nil {
+		t.Fatal("DomainResolver is nil, want non-nil")
+	}
+	if opts.DomainResolver.Server != "dns-local" {
+		t.Errorf("DomainResolver.Server = %q, want dns-local", opts.DomainResolver.Server)
+	}
+}
+
+func TestBuildDirectOutboundNoDomainResolver(t *testing.T) {
+	t.Parallel()
+
+	out := config.Outbound{Type: "direct", Tag: "direct"}
+	result, err := BuildOutbound(out)
+	if err != nil {
+		t.Fatalf("BuildOutbound: %v", err)
+	}
+
+	opts := result.Options.(*option.DirectOutboundOptions)
+	if opts.DomainResolver != nil {
+		t.Errorf("DomainResolver = %v, want nil", opts.DomainResolver)
 	}
 }

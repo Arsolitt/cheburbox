@@ -16,10 +16,17 @@ const outboundTypeDirect = "direct"
 func BuildOutbound(out config.Outbound) (option.Outbound, error) {
 	switch out.Type {
 	case outboundTypeDirect:
+		opts := option.DirectOutboundOptions{}
+		if out.DomainResolver != "" {
+			opts.DomainResolver = &option.DomainResolveOptions{
+				Server: out.DomainResolver,
+			}
+		}
+
 		return option.Outbound{
 			Type:    outboundTypeDirect,
 			Tag:     out.Tag,
-			Options: &option.DirectOutboundOptions{},
+			Options: &opts,
 		}, nil
 
 	case "urltest":
