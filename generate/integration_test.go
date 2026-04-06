@@ -9,9 +9,6 @@ import (
 	"github.com/Arsolitt/cheburbox/config"
 )
 
-//go:fix inline
-func strPtr(s string) *string { return new(s) }
-
 func TestIntegrationFullGeneration(t *testing.T) {
 	t.Parallel()
 

@@ -176,9 +176,9 @@ func findPersistedUser(
 
 func generateUserCreds(inboundType string) UserCreds {
 	switch inboundType {
-	case "vless":
+	case inboundTypeVLESS:
 		return UserCreds{UUID: GenerateUUID()}
-	case "hysteria2":
+	case inboundTypeHysteria2:
 		return UserCreds{Password: GeneratePassword()}
 	default:
 		return UserCreds{}
@@ -190,7 +190,7 @@ func resolveRealityKeys(
 	persisted config.PersistedCredentials,
 	creds *InboundCredentials,
 ) {
-	if in.Type != "vless" || in.TLS == nil || in.TLS.Reality == nil {
+	if in.Type != inboundTypeVLESS || in.TLS == nil || in.TLS.Reality == nil {
 		return
 	}
 
@@ -217,7 +217,7 @@ func resolveObfsPassword(
 	persisted config.PersistedCredentials,
 	creds *InboundCredentials,
 ) {
-	if in.Type != "hysteria2" || in.Obfs == nil {
+	if in.Type != inboundTypeHysteria2 || in.Obfs == nil {
 		return
 	}
 
@@ -236,7 +236,7 @@ func resolveCertificates(dir string, cfg config.Config, clean bool) ([]FileOutpu
 	var files []FileOutput
 
 	for _, in := range cfg.Inbounds {
-		if in.Type != "hysteria2" || in.TLS == nil || in.TLS.ServerName == "" {
+		if in.Type != inboundTypeHysteria2 || in.TLS == nil || in.TLS.ServerName == "" {
 			continue
 		}
 

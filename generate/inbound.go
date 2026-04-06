@@ -40,12 +40,18 @@ type hysteria2InboundOptions = option.Hysteria2InboundOptions
 // tunInboundOptions mirrors option.TunInboundOptions for type assertions in tests.
 type tunInboundOptions = option.TunInboundOptions
 
+const (
+	inboundTypeVLESS     = "vless"
+	inboundTypeHysteria2 = "hysteria2"
+	masqueradeTypeProxy  = "proxy"
+)
+
 // BuildInbound converts a cheburbox Inbound config and resolved credentials into a sing-box Inbound option.
 func BuildInbound(in config.Inbound, creds InboundCredentials) (option.Inbound, error) {
 	switch in.Type {
-	case "vless":
+	case inboundTypeVLESS:
 		return buildVLESSInbound(in, creds)
-	case "hysteria2":
+	case inboundTypeHysteria2:
 		return buildHysteria2Inbound(in, creds)
 	case "tun":
 		return buildTunInbound(in)
@@ -185,7 +191,7 @@ func buildHysteria2Masquerade(masq *config.MasqueradeConfig) (*option.Hysteria2M
 	}
 
 	switch masq.Type {
-	case "proxy":
+	case masqueradeTypeProxy:
 		m.ProxyOptions = option.Hysteria2MasqueradeProxy{
 			URL:         masq.URL,
 			RewriteHost: masq.RewriteHost,

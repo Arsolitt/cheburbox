@@ -10,12 +10,14 @@ import (
 	"github.com/Arsolitt/cheburbox/config"
 )
 
+const outboundTypeDirect = "direct"
+
 // BuildOutbound converts a cheburbox Outbound to a sing-box option.Outbound.
 func BuildOutbound(out config.Outbound) (option.Outbound, error) {
 	switch out.Type {
-	case "direct":
+	case outboundTypeDirect:
 		return option.Outbound{
-			Type:    "direct",
+			Type:    outboundTypeDirect,
 			Tag:     out.Tag,
 			Options: &option.DirectOutboundOptions{},
 		}, nil
@@ -45,7 +47,7 @@ func BuildOutbound(out config.Outbound) (option.Outbound, error) {
 			},
 		}, nil
 
-	case "vless", "hysteria2":
+	case inboundTypeVLESS, inboundTypeHysteria2:
 		return option.Outbound{}, fmt.Errorf(
 			"cross-server outbound type %q not supported in single-server mode",
 			out.Type,

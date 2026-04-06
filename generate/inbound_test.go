@@ -58,8 +58,15 @@ func TestBuildVLESSInbound(t *testing.T) {
 	if len(opts.Users) != 2 {
 		t.Fatalf("Users count = %d, want 2", len(opts.Users))
 	}
-	if opts.Users[0].Name != "alice" || opts.Users[0].UUID != "uuid-alice" {
-		t.Errorf("Users[0] = %+v, want {alice uuid-alice}", opts.Users[0])
+	usersByName := make(map[string]string, len(opts.Users))
+	for _, u := range opts.Users {
+		usersByName[u.Name] = u.UUID
+	}
+	if usersByName["alice"] != "uuid-alice" {
+		t.Errorf("alice UUID = %q, want uuid-alice", usersByName["alice"])
+	}
+	if usersByName["bob"] != "uuid-bob" {
+		t.Errorf("bob UUID = %q, want uuid-bob", usersByName["bob"])
 	}
 	if opts.ListenPort != 443 {
 		t.Errorf("ListenPort = %d, want 443", opts.ListenPort)
