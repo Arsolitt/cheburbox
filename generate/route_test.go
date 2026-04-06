@@ -85,6 +85,9 @@ func TestConvertRouteWithRules(t *testing.T) {
 	if opts.RuleSet[1].Type != "local" {
 		t.Errorf("RuleSet[1].Type = %q, want %q", opts.RuleSet[1].Type, "local")
 	}
+	if opts.RuleSet[1].LocalOptions.Path != "rule-set/extension.srs" {
+		t.Errorf("RuleSet[1].Path = %q, want %q", opts.RuleSet[1].LocalOptions.Path, "rule-set/extension.srs")
+	}
 }
 
 func TestConvertRouteWithCustomRuleSets(t *testing.T) {
@@ -108,5 +111,18 @@ func TestConvertRouteWithCustomRuleSets(t *testing.T) {
 	}
 	if localCount != 2 {
 		t.Errorf("expected 2 local rule sets, got %d", localCount)
+	}
+
+	paths := map[string]bool{}
+	for _, rs := range opts.RuleSet {
+		if rs.Type == "local" {
+			paths[rs.LocalOptions.Path] = true
+		}
+	}
+	if !paths["rule-set/extension.srs"] {
+		t.Error("missing rule-set/extension.srs path")
+	}
+	if !paths["rule-set/fastly.srs"] {
+		t.Error("missing rule-set/fastly.srs path")
 	}
 }

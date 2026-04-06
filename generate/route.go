@@ -48,7 +48,7 @@ func ConvertRoute(route *config.Route) (*option.RouteOptions, error) {
 			Type: C.RuleSetTypeLocal,
 			Tag:  name,
 			LocalOptions: option.LocalRuleSet{
-				Path: filepath.Join("rule-set", name+".json"),
+				Path: filepath.Join("rule-set", name+".srs"),
 			},
 		}
 		routeOpts.RuleSet = append(routeOpts.RuleSet, rs)
