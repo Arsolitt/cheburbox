@@ -30,12 +30,11 @@ type DNS struct {
 
 // DNSServer represents a single DNS server entry.
 type DNSServer struct {
-	Type            string `json:"type"`
-	Tag             string `json:"tag"`
-	Server          string `json:"server,omitempty"`
-	Detour          string `json:"detour,omitempty"`
-	ServerPort      int    `json:"server_port,omitempty"`
-	DefaultResolver bool   `json:"default_resolver,omitempty"`
+	Type       string `json:"type"`
+	Tag        string `json:"tag"`
+	Server     string `json:"server,omitempty"`
+	Detour     string `json:"detour,omitempty"`
+	ServerPort int    `json:"server_port,omitempty"`
 }
 
 // Inbound represents a single inbound configuration.

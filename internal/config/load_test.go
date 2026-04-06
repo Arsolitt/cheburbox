@@ -191,7 +191,7 @@ func TestLoadServer(t *testing.T) {
 				mustWriteFile(t, filepath.Join(dir, "cheburbox.json"), `{
 					"version": 1,
 					"dns": {
-						"servers": [{"type": "local", "tag": "dns-local", "default_resolver": true}],
+						"servers": [{"type": "local", "tag": "dns-local"}],
 						"final": "dns-local"
 					},
 					"inbounds": [
@@ -282,7 +282,7 @@ func TestLoadServerJsonnet(t *testing.T) {
 				mustMkdirAll(t, libDir)
 				mustWriteFile(t, filepath.Join(libDir, "dns.jsonnet"), `
 {
-	servers: [{type: "local", tag: "dns-local", default_resolver: true}],
+	servers: [{type: "local", tag: "dns-local"}],
 	final: "dns-local",
 	strategy: "prefer_ipv4",
 }
@@ -301,8 +301,8 @@ local dns = import "lib/dns.jsonnet";
 				if len(cfg.DNS.Servers) != 1 {
 					t.Fatalf("DNS.Servers count = %d, want 1", len(cfg.DNS.Servers))
 				}
-				if !cfg.DNS.Servers[0].DefaultResolver {
-					t.Error("DNS.Servers[0].DefaultResolver = false, want true")
+				if cfg.DNS.Servers[0].Tag != "dns-local" {
+					t.Errorf("DNS.Servers[0].Tag = %q, want %q", cfg.DNS.Servers[0].Tag, "dns-local")
 				}
 				if cfg.DNS.Strategy == nil || *cfg.DNS.Strategy != "prefer_ipv4" {
 					t.Errorf("DNS.Strategy = %v, want prefer_ipv4", cfg.DNS.Strategy)
@@ -427,32 +427,6 @@ func TestValidate(t *testing.T) {
 			errMsg:  "dns section is required",
 		},
 		{
-			name: "error on multiple default resolvers",
-			config: Config{
-				Version: 1,
-				DNS: DNS{
-					Servers: []DNSServer{
-						{Type: "local", Tag: "dns-local", DefaultResolver: true},
-						{Type: "tls", Tag: "dns-remote", Server: "8.8.8.8", DefaultResolver: true},
-					},
-				},
-			},
-			wantErr: true,
-			errMsg:  "at most one dns server",
-		},
-		{
-			name: "one default resolver is valid",
-			config: Config{
-				Version: 1,
-				DNS: DNS{
-					Servers: []DNSServer{
-						{Type: "local", Tag: "dns-local", DefaultResolver: true},
-						{Type: "tls", Tag: "dns-remote", Server: "8.8.8.8"},
-					},
-				},
-			},
-		},
-		{
 			name: "error on inbounds without endpoint",
 			config: Config{
 				Version: 1,
@@ -510,7 +484,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	mustWriteFile(t, filepath.Join(libDir, "dns.jsonnet"), `
 {
 	servers: [
-		{type: "local", tag: "dns-local", default_resolver: true},
+		{type: "local", tag: "dns-local"},
 		{type: "tls", tag: "dns-remote", server: "8.8.8.8", server_port: 853, detour: "direct"},
 	],
 	final: "dns-remote",
@@ -610,8 +584,8 @@ local dns = import "lib/dns.jsonnet";
 	if len(cfgA.DNS.Servers) != 2 {
 		t.Errorf("server-a dns servers = %d, want 2", len(cfgA.DNS.Servers))
 	}
-	if !cfgA.DNS.Servers[0].DefaultResolver {
-		t.Error("server-a dns[0] should be default resolver")
+	if cfgA.DNS.Servers[0].Tag != "dns-local" {
+		t.Errorf("server-a dns[0] tag = %q, want %q", cfgA.DNS.Servers[0].Tag, "dns-local")
 	}
 
 	if cfgB.Endpoint != "" {

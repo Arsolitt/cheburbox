@@ -132,16 +132,6 @@ func Validate(cfg Config) error {
 		return errors.New("dns section is required: at least one dns server must be defined")
 	}
 
-	defaultCount := 0
-	for _, srv := range cfg.DNS.Servers {
-		if srv.DefaultResolver {
-			defaultCount++
-		}
-	}
-	if defaultCount > 1 {
-		return fmt.Errorf("at most one dns server may have default_resolver: true, found %d", defaultCount)
-	}
-
 	if len(cfg.Inbounds) > 0 && cfg.Endpoint == "" {
 		return errors.New("endpoint is required when inbounds are defined")
 	}

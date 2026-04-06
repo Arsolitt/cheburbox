@@ -12,7 +12,7 @@ func TestConfigUnmarshal(t *testing.T) {
 		"log": {"level": "error", "timestamp": true},
 		"dns": {
 			"servers": [
-				{"type": "local", "tag": "dns-local", "default_resolver": true},
+				{"type": "local", "tag": "dns-local"},
 				{"type": "tls", "tag": "dns-remote", "server": "8.8.8.8", "server_port": 853, "detour": "direct"}
 			],
 			"final": "dns-remote",
@@ -112,8 +112,8 @@ func TestConfigUnmarshal(t *testing.T) {
 	if len(cfg.DNS.Servers) != 2 {
 		t.Fatalf("DNS.Servers count = %d, want 2", len(cfg.DNS.Servers))
 	}
-	if !cfg.DNS.Servers[0].DefaultResolver {
-		t.Error("DNS.Servers[0].DefaultResolver = false, want true")
+	if cfg.DNS.Servers[0].Tag != "dns-local" {
+		t.Errorf("DNS.Servers[0].Tag = %q, want %q", cfg.DNS.Servers[0].Tag, "dns-local")
 	}
 	if len(cfg.Inbounds) != 3 {
 		t.Fatalf("Inbounds count = %d, want 3", len(cfg.Inbounds))
@@ -143,7 +143,7 @@ func TestConfigMarshalRoundTrip(t *testing.T) {
 		Version:  1,
 		Endpoint: "1.2.3.4",
 		DNS: DNS{
-			Servers:  []DNSServer{{Type: "local", Tag: "dns-local", DefaultResolver: true}},
+			Servers:  []DNSServer{{Type: "local", Tag: "dns-local"}},
 			Final:    new("dns-local"),
 			Strategy: new("prefer_ipv4"),
 		},
