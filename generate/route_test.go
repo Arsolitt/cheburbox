@@ -126,3 +126,41 @@ func TestConvertRouteWithCustomRuleSets(t *testing.T) {
 		t.Error("missing rule-set/fastly.srs path")
 	}
 }
+
+func TestConvertRouteDefaultDomainResolver(t *testing.T) {
+	t.Parallel()
+
+	route := &config.Route{
+		Final:                 "direct",
+		DefaultDomainResolver: "dns-local",
+	}
+
+	opts, err := ConvertRoute(route)
+	if err != nil {
+		t.Fatalf("ConvertRoute: %v", err)
+	}
+
+	if opts.DefaultDomainResolver == nil {
+		t.Fatal("DefaultDomainResolver is nil, want non-nil")
+	}
+	if opts.DefaultDomainResolver.Server != "dns-local" {
+		t.Errorf("DefaultDomainResolver.Server = %q, want dns-local", opts.DefaultDomainResolver.Server)
+	}
+}
+
+func TestConvertRouteNoDefaultDomainResolver(t *testing.T) {
+	t.Parallel()
+
+	route := &config.Route{
+		Final: "direct",
+	}
+
+	opts, err := ConvertRoute(route)
+	if err != nil {
+		t.Fatalf("ConvertRoute: %v", err)
+	}
+
+	if opts.DefaultDomainResolver != nil {
+		t.Errorf("DefaultDomainResolver = %v, want nil", opts.DefaultDomainResolver)
+	}
+}

@@ -27,6 +27,12 @@ func ConvertRoute(route *config.Route) (*option.RouteOptions, error) {
 		AutoDetectInterface: route.AutoDetectInterface,
 	}
 
+	if route.DefaultDomainResolver != "" {
+		routeOpts.DefaultDomainResolver = &option.DomainResolveOptions{
+			Server: route.DefaultDomainResolver,
+		}
+	}
+
 	if len(route.Rules) > 0 {
 		var rules []option.Rule
 		if err := singjson.UnmarshalContext(ctx, route.Rules, &rules); err != nil {
