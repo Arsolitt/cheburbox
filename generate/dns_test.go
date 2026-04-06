@@ -1,6 +1,7 @@
 package generate
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/sagernet/sing-box/option"
@@ -93,5 +94,47 @@ func TestConvertDNSUnknownServerType(t *testing.T) {
 	_, err := ConvertDNS(cfg)
 	if err == nil {
 		t.Fatal("expected error for unknown DNS server type")
+	}
+}
+
+func TestConvertDNSWithRules(t *testing.T) {
+	t.Parallel()
+
+	rulesJSON := json.RawMessage(`[{
+		"rule_set": ["geosite-category-ru"],
+		"action": "route",
+		"server": "dns-local"
+	}]`)
+
+	cfg := config.DNS{
+		Final:   new("dns-remote"),
+		Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		Rules:   rulesJSON,
+	}
+
+	opts, err := ConvertDNS(cfg)
+	if err != nil {
+		t.Fatalf("ConvertDNS: %v", err)
+	}
+
+	if len(opts.Rules) != 1 {
+		t.Fatalf("Rules count = %d, want 1", len(opts.Rules))
+	}
+}
+
+func TestConvertDNSNoRules(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.DNS{
+		Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+	}
+
+	opts, err := ConvertDNS(cfg)
+	if err != nil {
+		t.Fatalf("ConvertDNS: %v", err)
+	}
+
+	if len(opts.Rules) != 0 {
+		t.Errorf("Rules count = %d, want 0", len(opts.Rules))
 	}
 }

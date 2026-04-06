@@ -1,10 +1,13 @@
 package generate
 
 import (
+	"context"
 	"fmt"
 
 	C "github.com/sagernet/sing-box/constant"
+	"github.com/sagernet/sing-box/include"
 	"github.com/sagernet/sing-box/option"
+	singjson "github.com/sagernet/sing/common/json"
 
 	"github.com/Arsolitt/cheburbox/config"
 )
@@ -16,7 +19,7 @@ func ConvertDNS(cfg config.DNS) (*option.DNSOptions, error) {
 		return nil, fmt.Errorf("convert dns servers: %w", err)
 	}
 
-	return &option.DNSOptions{
+	opts := &option.DNSOptions{
 		RawDNSOptions: option.RawDNSOptions{
 			Final:   derefOrEmpty(cfg.Final),
 			Servers: servers,
@@ -24,7 +27,18 @@ func ConvertDNS(cfg config.DNS) (*option.DNSOptions, error) {
 				Strategy: parseDomainStrategy(derefOrEmpty(cfg.Strategy)),
 			},
 		},
-	}, nil
+	}
+
+	if len(cfg.Rules) > 0 {
+		ctx := include.Context(context.Background())
+		var rules []option.DNSRule
+		if err := singjson.UnmarshalContext(ctx, cfg.Rules, &rules); err != nil {
+			return nil, fmt.Errorf("unmarshal dns rules: %w", err)
+		}
+		opts.Rules = rules
+	}
+
+	return opts, nil
 }
 
 func convertDNSServers(servers []config.DNSServer) ([]option.DNSServerOptions, error) {
