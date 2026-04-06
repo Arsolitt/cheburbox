@@ -118,7 +118,7 @@ func TestGenerateWritesConfig(t *testing.T) {
 			"servers": [{"type": "local", "tag": "dns-local"}],
 			"final": "dns-local"
 		},
-		"inbounds": [{"tag": "vless-in", "type": "vless", "listen_port": 443, "users": ["alice"]}],
+		"inbounds": [{"tag": "vless-in", "type": "vless", "listen_port": 443, "users": [{"name": "alice"}]}],
 		"outbounds": [{"type": "direct", "tag": "direct"}]
 	}`)
 
@@ -161,7 +161,7 @@ func TestGenerateCredentialPersistence(t *testing.T) {
 			"servers": [{"type": "local", "tag": "dns-local"}],
 			"final": "dns-local"
 		},
-		"inbounds": [{"tag": "vless-in", "type": "vless", "listen_port": 443, "users": ["alice"]}],
+		"inbounds": [{"tag": "vless-in", "type": "vless", "listen_port": 443, "users": [{"name": "alice"}]}],
 		"outbounds": [{"type": "direct", "tag": "direct"}]
 	}`)
 

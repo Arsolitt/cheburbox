@@ -35,7 +35,7 @@ func TestGenerateServer(t *testing.T) {
 						},
 					},
 				},
-				Users: []string{"alice"},
+				Users: []config.InboundUser{{Name: "alice"}},
 			},
 		},
 		Outbounds: []config.Outbound{
@@ -95,7 +95,7 @@ func TestGenerateServerPersistsCredentials(t *testing.T) {
 				Tag:        "vless-in",
 				Type:       "vless",
 				ListenPort: 443,
-				Users:      []string{"alice"},
+				Users:      []config.InboundUser{{Name: "alice"}},
 			},
 		},
 		Outbounds: []config.Outbound{
@@ -177,7 +177,7 @@ func TestGenerateServerWithHysteria2Certs(t *testing.T) {
 				Type:       "hysteria2",
 				ListenPort: 8443,
 				TLS:        &config.InboundTLS{ServerName: "hy.example.com"},
-				Users:      []string{"bob"},
+				Users:      []config.InboundUser{{Name: "bob"}},
 			},
 		},
 		Outbounds: []config.Outbound{
@@ -215,7 +215,7 @@ func TestResolveCredentials(t *testing.T) {
 			{
 				Tag:   "vless-in",
 				Type:  "vless",
-				Users: []string{"alice", "bob"},
+				Users: []config.InboundUser{{Name: "alice"}, {Name: "bob"}},
 				TLS: &config.InboundTLS{
 					Reality: &config.RealityConfig{
 						Handshake: &config.RealityHandshake{
@@ -228,7 +228,7 @@ func TestResolveCredentials(t *testing.T) {
 			{
 				Tag:   "hy2-in",
 				Type:  "hysteria2",
-				Users: []string{"charlie"},
+				Users: []config.InboundUser{{Name: "charlie"}},
 				Obfs:  &config.ObfsConfig{Type: "salamander"},
 			},
 		},
@@ -272,7 +272,7 @@ func TestResolveCredentialsWithPersistedReality(t *testing.T) {
 			{
 				Tag:   "vless-in",
 				Type:  "vless",
-				Users: []string{"alice"},
+				Users: []config.InboundUser{{Name: "alice"}},
 				TLS: &config.InboundTLS{
 					Reality: &config.RealityConfig{
 						Handshake: &config.RealityHandshake{
@@ -314,7 +314,7 @@ func TestResolveCredentialsWithPersistedObfs(t *testing.T) {
 			{
 				Tag:   "hy2-in",
 				Type:  "hysteria2",
-				Users: []string{"alice"},
+				Users: []config.InboundUser{{Name: "alice"}},
 				Obfs:  &config.ObfsConfig{Type: "salamander"},
 			},
 		},
@@ -394,7 +394,7 @@ func TestGenerateServerClean(t *testing.T) {
 				Tag:        "vless-in",
 				Type:       "vless",
 				ListenPort: 443,
-				Users:      []string{"alice", "bob"},
+				Users:      []config.InboundUser{{Name: "alice"}, {Name: "bob"}},
 			},
 		},
 		Outbounds: []config.Outbound{
@@ -424,7 +424,7 @@ func TestGenerateServerClean(t *testing.T) {
 				Tag:        "vless-in",
 				Type:       "vless",
 				ListenPort: 443,
-				Users:      []string{"alice"},
+				Users:      []config.InboundUser{{Name: "alice"}},
 			},
 		},
 		Outbounds: []config.Outbound{
@@ -475,7 +475,7 @@ func TestGenerateServerNoCleanPreservesExtraUsers(t *testing.T) {
 				Tag:        "vless-in",
 				Type:       "vless",
 				ListenPort: 443,
-				Users:      []string{"alice", "bob"},
+				Users:      []config.InboundUser{{Name: "alice"}, {Name: "bob"}},
 			},
 		},
 		Outbounds: []config.Outbound{
@@ -505,7 +505,7 @@ func TestGenerateServerNoCleanPreservesExtraUsers(t *testing.T) {
 				Tag:        "vless-in",
 				Type:       "vless",
 				ListenPort: 443,
-				Users:      []string{"alice"},
+				Users:      []config.InboundUser{{Name: "alice"}},
 			},
 		},
 		Outbounds: []config.Outbound{

@@ -2,8 +2,11 @@ package generate
 
 import (
 	"fmt"
+	"net/netip"
 	"strings"
 	"testing"
+
+	"github.com/sagernet/sing-box/option"
 
 	"github.com/Arsolitt/cheburbox/config"
 )
@@ -24,7 +27,7 @@ func TestBuildVLESSInbound(t *testing.T) {
 				ShortID: []string{"abcd1234"},
 			},
 		},
-		Users: []string{"alice", "bob"},
+		Users: []config.InboundUser{{Name: "alice"}, {Name: "bob"}},
 	}
 
 	creds := InboundCredentials{
@@ -93,7 +96,7 @@ func TestBuildVLESSInboundNoTLS(t *testing.T) {
 		Tag:        "vless-notls",
 		Type:       "vless",
 		ListenPort: 8080,
-		Users:      []string{"alice"},
+		Users:      []config.InboundUser{{Name: "alice"}},
 	}
 
 	creds := InboundCredentials{
@@ -157,7 +160,7 @@ func TestBuildHysteria2Inbound(t *testing.T) {
 			URL:         "https://hy.example.com",
 			RewriteHost: true,
 		},
-		Users: []string{"charlie"},
+		Users: []config.InboundUser{{Name: "charlie"}},
 	}
 
 	creds := InboundCredentials{
@@ -350,7 +353,7 @@ func TestBuildVLESSInboundMissingUserCreds(t *testing.T) {
 		Tag:        "vless-missing",
 		Type:       "vless",
 		ListenPort: 443,
-		Users:      []string{"alice"},
+		Users:      []config.InboundUser{{Name: "alice"}},
 	}
 
 	_, err := BuildInbound(in, InboundCredentials{
@@ -403,5 +406,133 @@ func TestBuildHysteria2InboundInvalidRouteExcludeAddress(t *testing.T) {
 	wantMsg := "parse route exclude address"
 	if got := err.Error(); !strings.Contains(got, wantMsg) {
 		t.Errorf("error = %q, want containing %q", got, wantMsg)
+	}
+}
+
+func TestBuildVLESSInboundPerUserFlow(t *testing.T) {
+	t.Parallel()
+
+	in := config.Inbound{
+		Tag:        "vless-flow",
+		Type:       "vless",
+		ListenPort: 443,
+		Users: []config.InboundUser{
+			{Name: "desktop", Flow: "xtls-rprx-vision"},
+			{Name: "phone"},
+		},
+	}
+
+	creds := InboundCredentials{
+		Users: map[string]UserCreds{
+			"desktop": {UUID: "uuid-desktop", Flow: "xtls-rprx-vision"},
+			"phone":   {UUID: "uuid-phone"},
+		},
+	}
+
+	inbound, err := BuildInbound(in, creds)
+	if err != nil {
+		t.Fatalf("BuildInbound: %v", err)
+	}
+
+	opts := inbound.Options.(*vlessInboundOptions)
+	if len(opts.Users) != 2 {
+		t.Fatalf("Users count = %d, want 2", len(opts.Users))
+	}
+
+	usersByName := make(map[string]option.VLESSUser, len(opts.Users))
+	for _, u := range opts.Users {
+		usersByName[u.Name] = u
+	}
+	if usersByName["desktop"].Flow != "xtls-rprx-vision" {
+		t.Errorf("desktop Flow = %q, want xtls-rprx-vision", usersByName["desktop"].Flow)
+	}
+	if usersByName["phone"].Flow != "" {
+		t.Errorf("phone Flow = %q, want empty", usersByName["phone"].Flow)
+	}
+}
+
+func TestBuildVLESSInboundListenAddress(t *testing.T) {
+	t.Parallel()
+
+	in := config.Inbound{
+		Tag:        "vless-listen",
+		Type:       "vless",
+		Listen:     "::",
+		ListenPort: 443,
+		Users:      []config.InboundUser{{Name: "alice"}},
+	}
+
+	creds := InboundCredentials{
+		Users: map[string]UserCreds{"alice": {UUID: "uuid-alice"}},
+	}
+
+	inbound, err := BuildInbound(in, creds)
+	if err != nil {
+		t.Fatalf("BuildInbound: %v", err)
+	}
+
+	opts := inbound.Options.(*vlessInboundOptions)
+	if opts.Listen == nil {
+		t.Fatal("Listen is nil, want non-nil")
+	}
+	if netip.Addr(*opts.Listen).String() != "::" {
+		t.Errorf("Listen = %q, want ::", netip.Addr(*opts.Listen).String())
+	}
+}
+
+func TestBuildVLESSInboundNoListen(t *testing.T) {
+	t.Parallel()
+
+	in := config.Inbound{
+		Tag:        "vless-nolisten",
+		Type:       "vless",
+		ListenPort: 443,
+		Users:      []config.InboundUser{{Name: "alice"}},
+	}
+
+	creds := InboundCredentials{
+		Users: map[string]UserCreds{"alice": {UUID: "uuid-alice"}},
+	}
+
+	inbound, err := BuildInbound(in, creds)
+	if err != nil {
+		t.Fatalf("BuildInbound: %v", err)
+	}
+
+	opts := inbound.Options.(*vlessInboundOptions)
+	if opts.Listen != nil {
+		t.Errorf("Listen = %v, want nil", opts.Listen)
+	}
+}
+
+func TestBuildHysteria2InboundALPN(t *testing.T) {
+	t.Parallel()
+
+	in := config.Inbound{
+		Tag:        "hy2-alpn",
+		Type:       "hysteria2",
+		ListenPort: 443,
+		TLS: &config.InboundTLS{
+			ServerName: "hy.example.com",
+			ALPN:       []string{"h3"},
+		},
+		Users: []config.InboundUser{{Name: "alice"}},
+	}
+
+	creds := InboundCredentials{
+		Users: map[string]UserCreds{"alice": {Password: "pw"}},
+	}
+
+	inbound, err := BuildInbound(in, creds)
+	if err != nil {
+		t.Fatalf("BuildInbound: %v", err)
+	}
+
+	opts := inbound.Options.(*hysteria2InboundOptions)
+	if opts.TLS == nil {
+		t.Fatal("TLS is nil")
+	}
+	if len(opts.TLS.ALPN) != 1 || opts.TLS.ALPN[0] != "h3" {
+		t.Errorf("ALPN = %v, want [h3]", opts.TLS.ALPN)
 	}
 }

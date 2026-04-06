@@ -138,15 +138,16 @@ func resolveCredentials(
 		}
 
 		for _, user := range in.Users {
-			if uc, ok := findPersistedUser(persisted, in.Tag, user); ok {
-				creds.Users[user] = UserCreds{
+			if uc, ok := findPersistedUser(persisted, in.Tag, user.Name); ok {
+				creds.Users[user.Name] = UserCreds{
 					UUID:     uc.UUID,
 					Password: uc.Password,
+					Flow:     uc.Flow,
 				}
 				continue
 			}
 
-			creds.Users[user] = generateUserCreds(in.Type)
+			creds.Users[user.Name] = generateUserCreds(in.Type)
 		}
 
 		if !clean {
@@ -155,6 +156,7 @@ func resolveCredentials(
 					creds.Users[name] = UserCreds{
 						UUID:     uc.UUID,
 						Password: uc.Password,
+						Flow:     uc.Flow,
 					}
 				}
 			}

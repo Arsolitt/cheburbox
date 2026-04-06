@@ -195,7 +195,7 @@ func TestLoadServer(t *testing.T) {
 						"final": "dns-local"
 					},
 					"inbounds": [
-						{"tag": "vless-in", "type": "vless", "listen_port": 443, "users": ["alice"]}
+						{"tag": "vless-in", "type": "vless", "listen_port": 443, "users": [{"name": "alice"}]}
 					],
 					"outbounds": [
 						{"type": "direct", "tag": "direct"}
@@ -504,7 +504,7 @@ local dns = import "lib/dns.jsonnet";
 			tag: "vless-in",
 			type: "vless",
 			listen_port: 443,
-			users: ["desktop", "Laptop"],
+			users: [{"name": "desktop"}, {"name": "Laptop"}],
 		},
 		{
 			tag: "hy2-in",

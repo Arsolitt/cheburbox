@@ -22,6 +22,7 @@ type InboundCredentials struct {
 type UserCreds struct {
 	UUID     string
 	Password string
+	Flow     string
 }
 
 // RealityKeys holds generated reality key pair and short IDs.
@@ -68,6 +69,7 @@ func buildVLESSInbound(in config.Inbound, creds InboundCredentials) (option.Inbo
 
 	opts := option.VLESSInboundOptions{
 		ListenOptions: option.ListenOptions{
+			Listen:     parseListenAddr(in.Listen),
 			ListenPort: intToUint16(in.ListenPort),
 		},
 		Users: users,
@@ -94,6 +96,7 @@ func buildVLESSUsers(creds InboundCredentials) []option.VLESSUser {
 		users = append(users, option.VLESSUser{
 			Name: name,
 			UUID: uc.UUID,
+			Flow: uc.Flow,
 		})
 	}
 
@@ -103,6 +106,7 @@ func buildVLESSUsers(creds InboundCredentials) []option.VLESSUser {
 func buildInboundTLS(tls *config.InboundTLS, creds InboundCredentials) *option.InboundTLSOptions {
 	tlsOpts := &option.InboundTLSOptions{
 		ServerName: tls.ServerName,
+		ALPN:       badoption.Listable[string](tls.ALPN),
 	}
 
 	if tls.Reality != nil && creds.Reality != nil {
@@ -130,6 +134,7 @@ func buildHysteria2Inbound(in config.Inbound, creds InboundCredentials) (option.
 
 	opts := option.Hysteria2InboundOptions{
 		ListenOptions: option.ListenOptions{
+			Listen:     parseListenAddr(in.Listen),
 			ListenPort: intToUint16(in.ListenPort),
 		},
 		UpMbps:   in.UpMbps,
@@ -151,6 +156,7 @@ func buildHysteria2Inbound(in config.Inbound, creds InboundCredentials) (option.
 	if in.TLS != nil {
 		opts.InboundTLSOptionsContainer.TLS = &option.InboundTLSOptions{
 			ServerName: in.TLS.ServerName,
+			ALPN:       badoption.Listable[string](in.TLS.ALPN),
 		}
 	}
 
@@ -247,6 +253,17 @@ func parsePrefixes(strs []string, field string) ([]netip.Prefix, error) {
 	}
 
 	return prefixes, nil
+}
+
+func parseListenAddr(s string) *badoption.Addr {
+	if s == "" {
+		return nil
+	}
+	addr, err := netip.ParseAddr(s)
+	if err != nil {
+		return nil
+	}
+	return (*badoption.Addr)(&addr)
 }
 
 func intToUint32(v int) uint32 {

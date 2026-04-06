@@ -21,6 +21,7 @@ type PersistedCredentials struct {
 type UserCredentials struct {
 	UUID     string
 	Password string
+	Flow     string
 }
 
 // RealityKeyPair holds Reality TLS key material for an inbound.
@@ -82,7 +83,7 @@ func ExtractCredentials(opts *option.Options) PersistedCredentials {
 func extractVLESSCredentials(tag string, opts *option.VLESSInboundOptions, creds *PersistedCredentials) {
 	users := make(map[string]UserCredentials, len(opts.Users))
 	for _, u := range opts.Users {
-		users[u.Name] = UserCredentials{UUID: u.UUID}
+		users[u.Name] = UserCredentials{UUID: u.UUID, Flow: u.Flow}
 	}
 	creds.InboundUsers[tag] = users
 

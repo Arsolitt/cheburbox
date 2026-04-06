@@ -25,7 +25,7 @@ func TestIntegrationFullGeneration(t *testing.T) {
 				{Type: "local", Tag: "dns-local"},
 				{Type: "tls", Tag: "dns-remote", Server: "8.8.8.8", ServerPort: 853, Detour: "direct"},
 			},
-			Rules: json.RawMessage(`[{"action": "sniff"}]`),
+			Rules: json.RawMessage(`[{"action": "route", "server": "dns-local"}]`),
 		},
 		Inbounds: []config.Inbound{
 			{
@@ -40,7 +40,7 @@ func TestIntegrationFullGeneration(t *testing.T) {
 						},
 					},
 				},
-				Users: []string{"desktop", "Laptop"},
+				Users: []config.InboundUser{{Name: "desktop"}, {Name: "Laptop"}},
 			},
 			{
 				Tag:        "hy2-in",
@@ -55,7 +55,7 @@ func TestIntegrationFullGeneration(t *testing.T) {
 					URL:         "https://spain.info",
 					RewriteHost: true,
 				},
-				Users: []string{"desktop"},
+				Users: []config.InboundUser{{Name: "desktop"}},
 			},
 			{
 				Tag:                    "tun-in",
@@ -139,7 +139,7 @@ func TestIntegrationIdempotentGeneration(t *testing.T) {
 				Tag:        "vless-in",
 				Type:       "vless",
 				ListenPort: 443,
-				Users:      []string{"alice"},
+				Users:      []config.InboundUser{{Name: "alice"}},
 			},
 		},
 		Outbounds: []config.Outbound{

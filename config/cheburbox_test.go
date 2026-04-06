@@ -29,7 +29,7 @@ func TestConfigUnmarshal(t *testing.T) {
 						"short_id": ["9b1f10c4"]
 					}
 				},
-				"users": ["desktop", "Laptop", "Mobile"]
+				"users": [{"name": "desktop"}, {"name": "Laptop"}, {"name": "Mobile"}]
 			},
 			{
 				"tag": "hy2-in",
@@ -40,7 +40,7 @@ func TestConfigUnmarshal(t *testing.T) {
 				"tls": {"server_name": "spain.info"},
 				"obfs": {"type": "salamander"},
 				"masquerade": {"type": "proxy", "url": "https://spain.info", "rewrite_host": true},
-				"users": ["desktop"]
+				"users": [{"name": "desktop"}]
 			},
 			{
 				"tag": "tun-in",

@@ -37,6 +37,22 @@ type DNSServer struct {
 	ServerPort int    `json:"server_port,omitempty"`
 }
 
+// InboundUser represents a user declaration on an inbound.
+// Name is required. Flow is optional and only used for VLESS inbounds.
+type InboundUser struct {
+	Name string `json:"name"`
+	Flow string `json:"flow,omitempty"`
+}
+
+// UserName returns a slice of user names from InboundUser entries.
+func UserName(users []InboundUser) []string {
+	names := make([]string, len(users))
+	for i, u := range users {
+		names[i] = u.Name
+	}
+	return names
+}
+
 // Inbound represents a single inbound configuration.
 // Use Type field to determine which fields are relevant.
 type Inbound struct {
@@ -46,8 +62,9 @@ type Inbound struct {
 	Type                   string            `json:"type"`
 	Stack                  string            `json:"stack,omitempty"`
 	Tag                    string            `json:"tag"`
+	Listen                 string            `json:"listen,omitempty"`
 	InterfaceName          string            `json:"interface_name,omitempty"`
-	Users                  []string          `json:"users,omitempty"`
+	Users                  []InboundUser     `json:"users,omitempty"`
 	Address                []string          `json:"address,omitempty"`
 	ExcludeInterface       []string          `json:"exclude_interface,omitempty"`
 	RouteExcludeAddress    []string          `json:"route_exclude_address,omitempty"`
@@ -63,6 +80,7 @@ type Inbound struct {
 type InboundTLS struct {
 	Reality    *RealityConfig `json:"reality,omitempty"`
 	ServerName string         `json:"server_name,omitempty"`
+	ALPN       []string       `json:"alpn,omitempty"`
 }
 
 // RealityConfig holds TLS reality configuration for VLESS inbounds.
@@ -93,23 +111,25 @@ type MasqueradeConfig struct {
 // Outbound represents a single outbound configuration.
 // Use Type field to determine which fields are relevant.
 type Outbound struct {
-	Type      string   `json:"type"`
-	Tag       string   `json:"tag"`
-	Server    string   `json:"server,omitempty"`
-	Inbound   string   `json:"inbound,omitempty"`
-	User      string   `json:"user,omitempty"`
-	Flow      string   `json:"flow,omitempty"`
-	Endpoint  string   `json:"endpoint,omitempty"`
-	URL       string   `json:"url,omitempty"`
-	Interval  string   `json:"interval,omitempty"`
-	Outbounds []string `json:"outbounds,omitempty"`
+	Type           string   `json:"type"`
+	Tag            string   `json:"tag"`
+	Server         string   `json:"server,omitempty"`
+	Inbound        string   `json:"inbound,omitempty"`
+	User           string   `json:"user,omitempty"`
+	Flow           string   `json:"flow,omitempty"`
+	Endpoint       string   `json:"endpoint,omitempty"`
+	URL            string   `json:"url,omitempty"`
+	Interval       string   `json:"interval,omitempty"`
+	DomainResolver string   `json:"domain_resolver,omitempty"`
+	Outbounds      []string `json:"outbounds,omitempty"`
 }
 
 // Route holds the routing configuration section.
 type Route struct {
-	Final               string          `json:"final,omitempty"`
-	RuleSets            json.RawMessage `json:"rule_sets,omitempty"`
-	CustomRuleSets      []string        `json:"custom_rule_sets,omitempty"`
-	Rules               json.RawMessage `json:"rules,omitempty"`
-	AutoDetectInterface bool            `json:"auto_detect_interface,omitempty"`
+	Final                 string          `json:"final,omitempty"`
+	DefaultDomainResolver string          `json:"default_domain_resolver,omitempty"`
+	RuleSets              json.RawMessage `json:"rule_sets,omitempty"`
+	CustomRuleSets        []string        `json:"custom_rule_sets,omitempty"`
+	Rules                 json.RawMessage `json:"rules,omitempty"`
+	AutoDetectInterface   bool            `json:"auto_detect_interface,omitempty"`
 }
