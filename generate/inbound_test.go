@@ -208,6 +208,12 @@ func TestBuildHysteria2Inbound(t *testing.T) {
 	if opts.TLS.ServerName != "hy.example.com" {
 		t.Errorf("TLS.ServerName = %q, want hy.example.com", opts.TLS.ServerName)
 	}
+	if opts.TLS.CertificatePath != "certs/hy.example.com.crt" {
+		t.Errorf("TLS.CertificatePath = %q, want certs/hy.example.com.crt", opts.TLS.CertificatePath)
+	}
+	if opts.TLS.KeyPath != "certs/hy.example.com.key" {
+		t.Errorf("TLS.KeyPath = %q, want certs/hy.example.com.key", opts.TLS.KeyPath)
+	}
 
 	if opts.Masquerade == nil {
 		t.Fatal("Masquerade is nil")
@@ -534,5 +540,11 @@ func TestBuildHysteria2InboundALPN(t *testing.T) {
 	}
 	if len(opts.TLS.ALPN) != 1 || opts.TLS.ALPN[0] != "h3" {
 		t.Errorf("ALPN = %v, want [h3]", opts.TLS.ALPN)
+	}
+	if opts.TLS.CertificatePath != "certs/hy.example.com.crt" {
+		t.Errorf("CertificatePath = %q, want certs/hy.example.com.crt", opts.TLS.CertificatePath)
+	}
+	if opts.TLS.KeyPath != "certs/hy.example.com.key" {
+		t.Errorf("KeyPath = %q, want certs/hy.example.com.key", opts.TLS.KeyPath)
 	}
 }

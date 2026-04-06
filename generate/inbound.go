@@ -154,10 +154,13 @@ func buildHysteria2Inbound(in config.Inbound, creds InboundCredentials) (option.
 	}
 
 	if in.TLS != nil {
-		opts.InboundTLSOptionsContainer.TLS = &option.InboundTLSOptions{
-			ServerName: in.TLS.ServerName,
-			ALPN:       badoption.Listable[string](in.TLS.ALPN),
+		tlsOpts := &option.InboundTLSOptions{
+			ServerName:      in.TLS.ServerName,
+			ALPN:            badoption.Listable[string](in.TLS.ALPN),
+			CertificatePath: "certs/" + in.TLS.ServerName + ".crt",
+			KeyPath:         "certs/" + in.TLS.ServerName + ".key",
 		}
+		opts.InboundTLSOptionsContainer.TLS = tlsOpts
 	}
 
 	if in.Masq != nil {
