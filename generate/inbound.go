@@ -1,6 +1,7 @@
 package generate
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 
@@ -54,9 +55,9 @@ func BuildInbound(in config.Inbound, creds InboundCredentials) (option.Inbound, 
 }
 
 func buildVLESSInbound(in config.Inbound, creds InboundCredentials) (option.Inbound, error) {
-	users, err := buildVLESSUsers(in.Users, creds)
-	if err != nil {
-		return option.Inbound{}, err
+	users := buildVLESSUsers(creds)
+	if len(users) == 0 && len(in.Users) > 0 {
+		return option.Inbound{}, errors.New("missing credentials for declared users")
 	}
 
 	opts := option.VLESSInboundOptions{
@@ -77,24 +78,20 @@ func buildVLESSInbound(in config.Inbound, creds InboundCredentials) (option.Inbo
 	}, nil
 }
 
-func buildVLESSUsers(usernames []string, creds InboundCredentials) ([]option.VLESSUser, error) {
-	if len(usernames) == 0 {
-		return nil, nil
+func buildVLESSUsers(creds InboundCredentials) []option.VLESSUser {
+	if len(creds.Users) == 0 {
+		return nil
 	}
 
-	users := make([]option.VLESSUser, 0, len(usernames))
-	for _, name := range usernames {
-		uc, ok := creds.Users[name]
-		if !ok {
-			return nil, fmt.Errorf("missing credentials for user %q", name)
-		}
+	users := make([]option.VLESSUser, 0, len(creds.Users))
+	for name, uc := range creds.Users {
 		users = append(users, option.VLESSUser{
 			Name: name,
 			UUID: uc.UUID,
 		})
 	}
 
-	return users, nil
+	return users
 }
 
 func buildInboundTLS(tls *config.InboundTLS, creds InboundCredentials) *option.InboundTLSOptions {
@@ -120,9 +117,9 @@ func buildInboundTLS(tls *config.InboundTLS, creds InboundCredentials) *option.I
 }
 
 func buildHysteria2Inbound(in config.Inbound, creds InboundCredentials) (option.Inbound, error) {
-	users, err := buildHysteria2Users(in.Users, creds)
-	if err != nil {
-		return option.Inbound{}, err
+	users := buildHysteria2Users(creds)
+	if len(users) == 0 && len(in.Users) > 0 {
+		return option.Inbound{}, errors.New("missing credentials for declared users")
 	}
 
 	opts := option.Hysteria2InboundOptions{
@@ -166,24 +163,20 @@ func buildHysteria2Inbound(in config.Inbound, creds InboundCredentials) (option.
 	}, nil
 }
 
-func buildHysteria2Users(usernames []string, creds InboundCredentials) ([]option.Hysteria2User, error) {
-	if len(usernames) == 0 {
-		return nil, nil
+func buildHysteria2Users(creds InboundCredentials) []option.Hysteria2User {
+	if len(creds.Users) == 0 {
+		return nil
 	}
 
-	users := make([]option.Hysteria2User, 0, len(usernames))
-	for _, name := range usernames {
-		uc, ok := creds.Users[name]
-		if !ok {
-			return nil, fmt.Errorf("missing credentials for user %q", name)
-		}
+	users := make([]option.Hysteria2User, 0, len(creds.Users))
+	for name, uc := range creds.Users {
 		users = append(users, option.Hysteria2User{
 			Name:     name,
 			Password: uc.Password,
 		})
 	}
 
-	return users, nil
+	return users
 }
 
 func buildHysteria2Masquerade(masq *config.MasqueradeConfig) (*option.Hysteria2Masquerade, error) {

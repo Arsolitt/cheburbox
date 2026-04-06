@@ -353,7 +353,7 @@ func TestBuildVLESSInboundMissingUserCreds(t *testing.T) {
 		t.Fatal("expected error for missing user credentials")
 	}
 
-	wantMsg := "missing credentials for user"
+	wantMsg := "missing credentials for declared users"
 	if got := err.Error(); !strings.Contains(got, wantMsg) {
 		t.Errorf("error = %q, want containing %q", got, wantMsg)
 	}

@@ -51,7 +51,7 @@ func GenerateServer(dir string, cfg config.Config, genCfg GenerateConfig) (Gener
 		return GenerateResult{}, fmt.Errorf("load persisted credentials: %w", err)
 	}
 
-	credsMap := resolveCredentials(cfg, persisted)
+	credsMap := resolveCredentials(cfg, persisted, genCfg.Clean)
 
 	certFiles, err := resolveCertificates(dir, cfg, genCfg.Clean)
 	if err != nil {
@@ -116,7 +116,12 @@ func GenerateServer(dir string, cfg config.Config, genCfg GenerateConfig) (Gener
 
 // resolveCredentials merges persisted credentials with newly generated ones
 // for all inbounds in the configuration.
-func resolveCredentials(cfg config.Config, persisted config.PersistedCredentials) map[string]InboundCredentials {
+// When clean is false, extra persisted users not declared in the config are preserved.
+func resolveCredentials(
+	cfg config.Config,
+	persisted config.PersistedCredentials,
+	clean bool,
+) map[string]InboundCredentials {
 	credsMap := make(map[string]InboundCredentials, len(cfg.Inbounds))
 
 	for _, in := range cfg.Inbounds {
@@ -134,6 +139,17 @@ func resolveCredentials(cfg config.Config, persisted config.PersistedCredentials
 			}
 
 			creds.Users[user] = generateUserCreds(in.Type)
+		}
+
+		if !clean {
+			for name, uc := range persisted.InboundUsers[in.Tag] {
+				if _, declared := creds.Users[name]; !declared {
+					creds.Users[name] = UserCreds{
+						UUID:     uc.UUID,
+						Password: uc.Password,
+					}
+				}
+			}
 		}
 
 		resolveRealityKeys(in, persisted, &creds)

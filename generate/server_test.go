@@ -239,7 +239,7 @@ func TestResolveCredentials(t *testing.T) {
 		"alice": {UUID: "persisted-uuid"},
 	}
 
-	credsMap := resolveCredentials(cfg, persisted)
+	credsMap := resolveCredentials(cfg, persisted, false)
 
 	vlessCreds := credsMap["vless-in"]
 	if vlessCreds.Users["alice"].UUID != "persisted-uuid" {
@@ -295,7 +295,7 @@ func TestResolveCredentialsWithPersistedReality(t *testing.T) {
 		"alice": {UUID: "persisted-uuid"},
 	}
 
-	credsMap := resolveCredentials(cfg, persisted)
+	credsMap := resolveCredentials(cfg, persisted, false)
 	vlessCreds := credsMap["vless-in"]
 
 	if vlessCreds.Reality.PrivateKey != "persisted-priv" {
@@ -326,7 +326,7 @@ func TestResolveCredentialsWithPersistedObfs(t *testing.T) {
 		"alice": {Password: "persisted-pw"},
 	}
 
-	credsMap := resolveCredentials(cfg, persisted)
+	credsMap := resolveCredentials(cfg, persisted, false)
 	hy2Creds := credsMap["hy2-in"]
 
 	if hy2Creds.ObfsPassword != "persisted-obfs-pw" {
@@ -374,6 +374,168 @@ func TestParseCertPEMInvalid(t *testing.T) {
 	_, err := parseCertPEM([]byte("not valid PEM"))
 	if err == nil {
 		t.Fatal("expected error for invalid PEM")
+	}
+}
+
+func TestGenerateServerClean(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	cfg1 := config.Config{
+		Version:  1,
+		Endpoint: "1.2.3.4",
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Inbounds: []config.Inbound{
+			{
+				Tag:        "vless-in",
+				Type:       "vless",
+				ListenPort: 443,
+				Users:      []string{"alice", "bob"},
+			},
+		},
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+		},
+	}
+
+	result1, err := GenerateServer(dir, cfg1, GenerateConfig{})
+	if err != nil {
+		t.Fatalf("first generate: %v", err)
+	}
+
+	configFile := findFile(result1.Files, "config.json")
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), configFile.Content, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg2 := config.Config{
+		Version:  1,
+		Endpoint: "1.2.3.4",
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Inbounds: []config.Inbound{
+			{
+				Tag:        "vless-in",
+				Type:       "vless",
+				ListenPort: 443,
+				Users:      []string{"alice"},
+			},
+		},
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+		},
+	}
+
+	result2, err := GenerateServer(dir, cfg2, GenerateConfig{Clean: true})
+	if err != nil {
+		t.Fatalf("second generate: %v", err)
+	}
+
+	var parsed map[string]any
+	configFile2 := findFile(result2.Files, "config.json")
+	if err := json.Unmarshal(configFile2.Content, &parsed); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	inbounds, ok := parsed["inbounds"].([]any)
+	if !ok || len(inbounds) != 1 {
+		t.Fatalf("expected 1 inbound, got %d", len(inbounds))
+	}
+
+	firstIn, ok := inbounds[0].(map[string]any)
+	if !ok {
+		t.Fatal("inbound is not a map")
+	}
+	users, ok := firstIn["users"].([]any)
+	if !ok || len(users) != 1 {
+		t.Fatalf("expected 1 user after clean, got %d", len(users))
+	}
+}
+
+func TestGenerateServerNoCleanPreservesExtraUsers(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	cfg1 := config.Config{
+		Version:  1,
+		Endpoint: "1.2.3.4",
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Inbounds: []config.Inbound{
+			{
+				Tag:        "vless-in",
+				Type:       "vless",
+				ListenPort: 443,
+				Users:      []string{"alice", "bob"},
+			},
+		},
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+		},
+	}
+
+	result1, err := GenerateServer(dir, cfg1, GenerateConfig{})
+	if err != nil {
+		t.Fatalf("first generate: %v", err)
+	}
+
+	configFile := findFile(result1.Files, "config.json")
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), configFile.Content, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg2 := config.Config{
+		Version:  1,
+		Endpoint: "1.2.3.4",
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Inbounds: []config.Inbound{
+			{
+				Tag:        "vless-in",
+				Type:       "vless",
+				ListenPort: 443,
+				Users:      []string{"alice"},
+			},
+		},
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+		},
+	}
+
+	result2, err := GenerateServer(dir, cfg2, GenerateConfig{Clean: false})
+	if err != nil {
+		t.Fatalf("second generate: %v", err)
+	}
+
+	var parsed map[string]any
+	configFile2 := findFile(result2.Files, "config.json")
+	if err := json.Unmarshal(configFile2.Content, &parsed); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	inbounds, ok := parsed["inbounds"].([]any)
+	if !ok || len(inbounds) != 1 {
+		t.Fatalf("expected 1 inbound, got %d", len(inbounds))
+	}
+
+	firstIn, ok := inbounds[0].(map[string]any)
+	if !ok {
+		t.Fatal("inbound is not a map")
+	}
+	users, ok := firstIn["users"].([]any)
+	if !ok || len(users) != 2 {
+		t.Fatalf("expected 2 users without clean (extra persisted user preserved), got %d", len(users))
 	}
 }
 
