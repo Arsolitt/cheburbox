@@ -137,7 +137,8 @@ func TestBuildVlessCrossServerOutbound(t *testing.T) {
 	t.Parallel()
 
 	state := NewServerState()
-	state.StoreEndpoint("remote", "1.2.3.4:443")
+	state.StoreEndpoint("remote", "1.2.3.4")
+	state.StoreListenPort("remote", "vless-in", 443)
 	state.StoreInboundCredentials("remote", "vless-in", InboundCredentials{
 		Users: map[string]UserCreds{
 			"alice": {UUID: "test-uuid-1234", Flow: "xtls-rprx-vision"},
@@ -208,7 +209,8 @@ func TestBuildHysteria2CrossServerOutbound(t *testing.T) {
 	t.Parallel()
 
 	state := NewServerState()
-	state.StoreEndpoint("remote", "5.6.7.8:8443")
+	state.StoreEndpoint("remote", "5.6.7.8")
+	state.StoreListenPort("remote", "hy2-in", 8443)
 	state.StoreInboundCredentials("remote", "hy2-in", InboundCredentials{
 		Users:        map[string]UserCreds{"bob": {Password: "secret-pw"}},
 		ObfsPassword: "obfs-secret",
@@ -275,7 +277,8 @@ func TestBuildVlessCrossServerEndpointOverride(t *testing.T) {
 	t.Parallel()
 
 	state := NewServerState()
-	state.StoreEndpoint("remote", "1.2.3.4:443")
+	state.StoreEndpoint("remote", "1.2.3.4")
+	state.StoreListenPort("remote", "vless-in", 443)
 	state.StoreInboundCredentials("remote", "vless-in", InboundCredentials{
 		Users: map[string]UserCreds{
 			"alice": {UUID: "test-uuid"},
@@ -297,11 +300,11 @@ func TestBuildVlessCrossServerEndpointOverride(t *testing.T) {
 	}
 
 	opts := result.Options.(*option.VLESSOutboundOptions)
-	if opts.Server != "5.6.7.8" {
-		t.Errorf("Server = %q, want 5.6.7.8 (from endpoint override)", opts.Server)
+	if opts.Server != "5.6.7.8:8443" {
+		t.Errorf("Server = %q, want 5.6.7.8:8443 (from endpoint override)", opts.Server)
 	}
-	if opts.ServerPort != 8443 {
-		t.Errorf("ServerPort = %d, want 8443 (from endpoint override)", opts.ServerPort)
+	if opts.ServerPort != 443 {
+		t.Errorf("ServerPort = %d, want 443 (from state)", opts.ServerPort)
 	}
 }
 
@@ -309,7 +312,8 @@ func TestBuildCrossServerOutboundUserNotFound(t *testing.T) {
 	t.Parallel()
 
 	state := NewServerState()
-	state.StoreEndpoint("remote", "1.2.3.4:443")
+	state.StoreEndpoint("remote", "1.2.3.4")
+	state.StoreListenPort("remote", "vless-in", 443)
 	state.StoreInboundCredentials("remote", "vless-in", InboundCredentials{
 		Users: map[string]UserCreds{
 			"alice": {UUID: "test-uuid"},
@@ -357,7 +361,8 @@ func TestBuildVlessCrossServerDefaultUser(t *testing.T) {
 	t.Parallel()
 
 	state := NewServerState()
-	state.StoreEndpoint("remote", "1.2.3.4:443")
+	state.StoreEndpoint("remote", "1.2.3.4")
+	state.StoreListenPort("remote", "vless-in", 443)
 	state.StoreInboundCredentials("remote", "vless-in", InboundCredentials{
 		Users: map[string]UserCreds{
 			"alice": {UUID: "alice-uuid"},
@@ -387,7 +392,8 @@ func TestBuildVlessCrossServerNoCredentials(t *testing.T) {
 	t.Parallel()
 
 	state := NewServerState()
-	state.StoreEndpoint("remote", "1.2.3.4:443")
+	state.StoreEndpoint("remote", "1.2.3.4")
+	state.StoreListenPort("remote", "vless-in", 443)
 
 	out := config.Outbound{
 		Type:    "vless",
@@ -437,7 +443,8 @@ func TestBuildVlessCrossServerNoReality(t *testing.T) {
 	t.Parallel()
 
 	state := NewServerState()
-	state.StoreEndpoint("remote", "1.2.3.4:443")
+	state.StoreEndpoint("remote", "1.2.3.4")
+	state.StoreListenPort("remote", "vless-in", 443)
 	state.StoreInboundCredentials("remote", "vless-in", InboundCredentials{
 		Users: map[string]UserCreds{
 			"alice": {UUID: "test-uuid"},
@@ -467,7 +474,8 @@ func TestBuildVlessCrossServerEmptyShortID(t *testing.T) {
 	t.Parallel()
 
 	state := NewServerState()
-	state.StoreEndpoint("remote", "1.2.3.4:443")
+	state.StoreEndpoint("remote", "1.2.3.4")
+	state.StoreListenPort("remote", "vless-in", 443)
 	state.StoreInboundCredentials("remote", "vless-in", InboundCredentials{
 		Users: map[string]UserCreds{
 			"alice": {UUID: "test-uuid"},
@@ -501,7 +509,8 @@ func TestBuildHysteria2CrossServerNoPin(t *testing.T) {
 	t.Parallel()
 
 	state := NewServerState()
-	state.StoreEndpoint("remote", "5.6.7.8:8443")
+	state.StoreEndpoint("remote", "5.6.7.8")
+	state.StoreListenPort("remote", "hy2-in", 8443)
 	state.StoreInboundCredentials("remote", "hy2-in", InboundCredentials{
 		Users: map[string]UserCreds{"bob": {Password: "secret-pw"}},
 	})
@@ -529,7 +538,8 @@ func TestBuildHysteria2CrossServerNoObfs(t *testing.T) {
 	t.Parallel()
 
 	state := NewServerState()
-	state.StoreEndpoint("remote", "5.6.7.8:8443")
+	state.StoreEndpoint("remote", "5.6.7.8")
+	state.StoreListenPort("remote", "hy2-in", 8443)
 	state.StoreInboundCredentials("remote", "hy2-in", InboundCredentials{
 		Users: map[string]UserCreds{"bob": {Password: "secret-pw"}},
 	})
@@ -557,7 +567,8 @@ func TestBuildCrossServerNoUserNoDefault(t *testing.T) {
 	t.Parallel()
 
 	state := NewServerState()
-	state.StoreEndpoint("remote", "1.2.3.4:443")
+	state.StoreEndpoint("remote", "1.2.3.4")
+	state.StoreListenPort("remote", "vless-in", 443)
 	state.StoreInboundCredentials("remote", "vless-in", InboundCredentials{
 		Users: map[string]UserCreds{
 			"alice": {UUID: "test-uuid"},

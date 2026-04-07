@@ -4,12 +4,13 @@ import (
 	"fmt"
 )
 
-// ServerState holds per-server state for credentials, pin-SHA256, endpoints, and inbound types.
+// ServerState holds per-server state for credentials, pin-SHA256, endpoints, inbound types, and listen ports.
 type ServerState struct {
 	credentials map[string]map[string]InboundCredentials
 	pinSHA256   map[string]map[string]string
 	endpoints   map[string]string
 	inboundType map[string]map[string]string
+	listenPort  map[string]map[string]uint16
 }
 
 // NewServerState creates an empty ServerState ready for use.
@@ -19,6 +20,7 @@ func NewServerState() *ServerState {
 		pinSHA256:   make(map[string]map[string]string),
 		endpoints:   make(map[string]string),
 		inboundType: make(map[string]map[string]string),
+		listenPort:  make(map[string]map[string]uint16),
 	}
 }
 
@@ -85,6 +87,24 @@ func (s *ServerState) GetInboundType(server string, tag string) (string, bool) {
 	}
 	typ, ok := tags[tag]
 	return typ, ok
+}
+
+// StoreListenPort saves the listen port for a server's inbound.
+func (s *ServerState) StoreListenPort(server string, tag string, port uint16) {
+	if s.listenPort[server] == nil {
+		s.listenPort[server] = make(map[string]uint16)
+	}
+	s.listenPort[server][tag] = port
+}
+
+// GetListenPort retrieves the listen port for a server's inbound.
+func (s *ServerState) GetListenPort(server string, tag string) (uint16, bool) {
+	tags, ok := s.listenPort[server]
+	if !ok {
+		return 0, false
+	}
+	port, ok := tags[tag]
+	return port, ok
 }
 
 // EnsureUser adds a user with generated credentials to an existing inbound.

@@ -145,6 +145,33 @@ func TestServerStateEnsureUserNoInbound(t *testing.T) {
 	}
 }
 
+func TestServerStateStoreAndGetListenPort(t *testing.T) {
+	t.Parallel()
+
+	state := NewServerState()
+
+	state.StoreListenPort("server-a", "vless-in", 443)
+
+	got, ok := state.GetListenPort("server-a", "vless-in")
+	if !ok {
+		t.Fatal("expected listen port to be stored")
+	}
+	if got != 443 {
+		t.Errorf("listen port = %d, want 443", got)
+	}
+}
+
+func TestServerStateMissingListenPort(t *testing.T) {
+	t.Parallel()
+
+	state := NewServerState()
+
+	_, ok := state.GetListenPort("server-a", "vless-in")
+	if ok {
+		t.Fatal("expected no listen port for unknown server/inbound")
+	}
+}
+
 func TestServerStateGetInboundType(t *testing.T) {
 	t.Parallel()
 

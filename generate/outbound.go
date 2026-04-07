@@ -3,8 +3,6 @@ package generate
 import (
 	"encoding/base64"
 	"fmt"
-	"net"
-	"strconv"
 	"time"
 
 	"github.com/sagernet/sing-box/option"
@@ -135,10 +133,12 @@ func buildCrossServerVlessOutbound(
 		)
 	}
 
-	host, port, err := resolveEndpoint(out, state)
+	host, err := resolveEndpoint(out, state)
 	if err != nil {
 		return option.Outbound{}, fmt.Errorf("resolve endpoint: %w", err)
 	}
+
+	port, _ := state.GetListenPort(out.Server, out.Inbound)
 
 	opts := option.VLESSOutboundOptions{
 		ServerOptions: option.ServerOptions{
@@ -197,10 +197,12 @@ func buildCrossServerHysteria2Outbound(
 		)
 	}
 
-	host, port, err := resolveEndpoint(out, state)
+	host, err := resolveEndpoint(out, state)
 	if err != nil {
 		return option.Outbound{}, fmt.Errorf("resolve endpoint: %w", err)
 	}
+
+	port, _ := state.GetListenPort(out.Server, out.Inbound)
 
 	opts := option.Hysteria2OutboundOptions{
 		ServerOptions: option.ServerOptions{
@@ -238,27 +240,17 @@ func buildCrossServerHysteria2Outbound(
 	}, nil
 }
 
-func resolveEndpoint(out config.Outbound, state *ServerState) (string, uint16, error) {
+func resolveEndpoint(out config.Outbound, state *ServerState) (string, error) {
 	ep := out.Endpoint
 	if ep == "" {
 		var ok bool
 		ep, ok = state.GetEndpoint(out.Server)
 		if !ok {
-			return "", 0, fmt.Errorf("server %q has no endpoint configured", out.Server)
+			return "", fmt.Errorf("server %q has no endpoint configured", out.Server)
 		}
 	}
 
-	host, portStr, err := net.SplitHostPort(ep)
-	if err != nil {
-		return "", 0, fmt.Errorf("parse endpoint %q: %w", ep, err)
-	}
-
-	port, err := strconv.ParseUint(portStr, 10, 16)
-	if err != nil {
-		return "", 0, fmt.Errorf("parse port %q: %w", portStr, err)
-	}
-
-	return host, uint16(port), nil
+	return ep, nil
 }
 
 func resolveUser(explicitUser string, defaultUser string) string {

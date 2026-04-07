@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 
@@ -557,6 +558,9 @@ func generateServerWithState(
 
 	for _, in := range cfg.Inbounds {
 		state.StoreInboundType(serverName, in.Tag, in.Type)
+		if in.ListenPort > 0 && in.ListenPort <= math.MaxUint16 {
+			state.StoreListenPort(serverName, in.Tag, uint16(in.ListenPort))
+		}
 		mergeCredentialsIntoState(state, serverName, in.Tag, credsMap[in.Tag])
 	}
 
@@ -649,6 +653,9 @@ func regenerateServer(
 
 	for _, in := range cfg.Inbounds {
 		state.StoreInboundType(serverName, in.Tag, in.Type)
+		if in.ListenPort > 0 && in.ListenPort <= math.MaxUint16 {
+			state.StoreListenPort(serverName, in.Tag, uint16(in.ListenPort))
+		}
 		mergeCredentialsIntoState(state, serverName, in.Tag, credsMap[in.Tag])
 	}
 
