@@ -3,9 +3,12 @@ package generate
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -109,4 +112,26 @@ func WriteCertFiles(certPath string, keyPath string, certPEM []byte, keyPEM []by
 		return fmt.Errorf("write key %s: %w", keyPath, err)
 	}
 	return nil
+}
+
+func computePinSHA256(certPEM []byte) (string, error) {
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return "", errors.New("failed to decode PEM block")
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("parse certificate: %w", err)
+	}
+
+	pubBytes, err := x509.MarshalPKIXPublicKey(cert.PublicKey)
+	if err != nil {
+		return "", fmt.Errorf("marshal public key: %w", err)
+	}
+
+	sum := sha256.Sum256(pubBytes)
+	encoded := base64.RawURLEncoding.EncodeToString(sum[:])
+
+	return "sha256/" + encoded, nil
 }

@@ -120,3 +120,28 @@ func TestWriteOrReadCertNonexistentDir(t *testing.T) {
 		t.Fatal("expected error for nonexistent directory")
 	}
 }
+
+func TestComputePinSHA256(t *testing.T) {
+	t.Parallel()
+
+	certPEM, _ := GenerateSelfSignedCertPEM("test.example.com")
+	pin, err := computePinSHA256(certPEM)
+	if err != nil {
+		t.Fatalf("computePinSHA256: %v", err)
+	}
+	if pin == "" {
+		t.Fatal("expected non-empty pin-sha256")
+	}
+	if len(pin) < 8 {
+		t.Errorf("pin-sha256 too short: %q", pin)
+	}
+}
+
+func TestComputePinSHA256InvalidPEM(t *testing.T) {
+	t.Parallel()
+
+	_, err := computePinSHA256([]byte("not valid PEM"))
+	if err == nil {
+		t.Fatal("expected error for invalid PEM")
+	}
+}
