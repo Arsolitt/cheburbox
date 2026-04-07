@@ -61,7 +61,7 @@ func GenerateShortID() string {
 
 // DerivePublicKey derives the X25519 public key from a base64-encoded private key.
 //
-//nolint:revive // "generate.Derive" stutter is intentional for API clarity.
+
 func DerivePublicKey(privateKeyBase64 string) (string, error) {
 	privBytes, err := base64.StdEncoding.DecodeString(privateKeyBase64)
 	if err != nil {

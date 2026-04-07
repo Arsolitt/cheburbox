@@ -108,3 +108,36 @@ func TestGenerateShortID(t *testing.T) {
 		t.Fatalf("expected 1-16 bytes, got %d", len(decoded))
 	}
 }
+
+func TestDerivePublicKey(t *testing.T) {
+	t.Parallel()
+
+	priv, expectedPub := GenerateX25519KeyPair()
+
+	gotPub, err := DerivePublicKey(priv)
+	if err != nil {
+		t.Fatalf("DerivePublicKey: %v", err)
+	}
+	if gotPub != expectedPub {
+		t.Errorf("DerivePublicKey = %q, want %q", gotPub, expectedPub)
+	}
+}
+
+func TestDerivePublicKeyInvalidBase64(t *testing.T) {
+	t.Parallel()
+
+	_, err := DerivePublicKey("not-base64!!!")
+	if err == nil {
+		t.Fatal("expected error for invalid base64")
+	}
+}
+
+func TestDerivePublicKeyInvalidKey(t *testing.T) {
+	t.Parallel()
+
+	shortKey := base64.StdEncoding.EncodeToString([]byte("too-short"))
+	_, err := DerivePublicKey(shortKey)
+	if err == nil {
+		t.Fatal("expected error for invalid key length")
+	}
+}

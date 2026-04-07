@@ -318,6 +318,47 @@ func TestResolveCredentialsWithPersistedReality(t *testing.T) {
 	}
 }
 
+func TestResolveCredentialsDerivePublicKeyFromPrivate(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Inbounds: []config.Inbound{
+			{
+				Tag:   "vless-in",
+				Type:  "vless",
+				Users: []config.InboundUser{{Name: "alice"}},
+				TLS: &config.InboundTLS{
+					Reality: &config.RealityConfig{
+						Handshake: &config.RealityHandshake{
+							Server:     "example.com",
+							ServerPort: 443,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	priv, expectedPub := GenerateX25519KeyPair()
+
+	persisted := config.EmptyPersistedCredentials()
+	persisted.RealityKeys["vless-in"] = config.RealityKeyPair{
+		PrivateKey: priv,
+		PublicKey:  "",
+		ShortID:    []string{"sid"},
+	}
+	persisted.InboundUsers["vless-in"] = map[string]config.UserCredentials{
+		"alice": {UUID: "persisted-uuid"},
+	}
+
+	credsMap := resolveCredentials(cfg, persisted, false)
+	vlessCreds := credsMap["vless-in"]
+
+	if vlessCreds.Reality.PublicKey != expectedPub {
+		t.Errorf("PublicKey = %q, want %q (derived from private key)", vlessCreds.Reality.PublicKey, expectedPub)
+	}
+}
+
 func TestResolveCredentialsWithPersistedObfs(t *testing.T) {
 	t.Parallel()
 
