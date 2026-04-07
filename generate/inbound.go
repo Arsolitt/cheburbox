@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common/json/badoption"
@@ -100,6 +101,16 @@ func buildVLESSUsers(creds InboundCredentials) []option.VLESSUser {
 		})
 	}
 
+	slices.SortFunc(users, func(a, b option.VLESSUser) int {
+		if a.Name < b.Name {
+			return -1
+		}
+		if a.Name > b.Name {
+			return 1
+		}
+		return 0
+	})
+
 	return users
 }
 
@@ -192,6 +203,16 @@ func buildHysteria2Users(creds InboundCredentials) []option.Hysteria2User {
 			Password: uc.Password,
 		})
 	}
+
+	slices.SortFunc(users, func(a, b option.Hysteria2User) int {
+		if a.Name < b.Name {
+			return -1
+		}
+		if a.Name > b.Name {
+			return 1
+		}
+		return 0
+	})
 
 	return users
 }
