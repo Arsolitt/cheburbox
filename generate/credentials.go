@@ -6,6 +6,7 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 
 	"github.com/gofrs/uuid/v5"
 )
@@ -43,8 +44,8 @@ func GenerateX25519KeyPair() (string, string) {
 	if err != nil {
 		panic("generate x25519 key: " + err.Error())
 	}
-	return base64.StdEncoding.EncodeToString(key.Bytes()),
-		base64.StdEncoding.EncodeToString(key.PublicKey().Bytes())
+	return base64.RawURLEncoding.EncodeToString(key.Bytes()),
+		base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes())
 }
 
 // GenerateShortID returns a base64-encoded 8-byte random short identifier.
@@ -56,14 +57,14 @@ func GenerateShortID() string {
 	if _, err := rand.Read(b); err != nil {
 		panic("generate short id: " + err.Error())
 	}
-	return base64.StdEncoding.EncodeToString(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 // DerivePublicKey derives the X25519 public key from a base64-encoded private key.
 //
 
 func DerivePublicKey(privateKeyBase64 string) (string, error) {
-	privBytes, err := base64.StdEncoding.DecodeString(privateKeyBase64)
+	privBytes, err := decodeBase64Key(privateKeyBase64)
 	if err != nil {
 		return "", err
 	}
@@ -73,5 +74,22 @@ func DerivePublicKey(privateKeyBase64 string) (string, error) {
 		return "", err
 	}
 
-	return base64.StdEncoding.EncodeToString(key.PublicKey().Bytes()), nil
+	return base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes()), nil
+}
+
+func decodeBase64Key(s string) ([]byte, error) {
+	for _, enc := range []struct {
+		dec  *base64.Encoding
+		name string
+	}{
+		{base64.StdEncoding, "std"},
+		{base64.RawStdEncoding, "raw-std"},
+		{base64.RawURLEncoding, "raw-url"},
+	} {
+		if b, err := enc.dec.DecodeString(s); err == nil {
+			return b, nil
+		}
+	}
+
+	return nil, fmt.Errorf("decode base64 key: all encodings failed for %q", s)
 }

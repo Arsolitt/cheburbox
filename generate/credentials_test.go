@@ -63,14 +63,14 @@ func TestGenerateX25519KeyPair(t *testing.T) {
 	if pub == "" {
 		t.Fatal("expected non-empty public key")
 	}
-	privBytes, err := base64.StdEncoding.DecodeString(priv)
+	privBytes, err := base64.RawURLEncoding.DecodeString(priv)
 	if err != nil {
 		t.Fatalf("decode private key: %v", err)
 	}
 	if len(privBytes) != 32 {
 		t.Fatalf("expected 32-byte private key, got %d", len(privBytes))
 	}
-	pubBytes, err := base64.StdEncoding.DecodeString(pub)
+	pubBytes, err := base64.RawURLEncoding.DecodeString(pub)
 	if err != nil {
 		t.Fatalf("decode public key: %v", err)
 	}
@@ -83,8 +83,8 @@ func TestGenerateX25519KeyPairValid(t *testing.T) {
 	t.Parallel()
 
 	priv, pub := GenerateX25519KeyPair()
-	privBytes, _ := base64.StdEncoding.DecodeString(priv)
-	pubBytes, _ := base64.StdEncoding.DecodeString(pub)
+	privBytes, _ := base64.RawURLEncoding.DecodeString(priv)
+	pubBytes, _ := base64.RawURLEncoding.DecodeString(pub)
 
 	privateKey, err := ecdh.X25519().NewPrivateKey(privBytes)
 	if err != nil {
@@ -100,7 +100,7 @@ func TestGenerateShortID(t *testing.T) {
 	t.Parallel()
 
 	id := GenerateShortID()
-	decoded, err := base64.StdEncoding.DecodeString(id)
+	decoded, err := base64.RawURLEncoding.DecodeString(id)
 	if err != nil {
 		t.Fatalf("base64 decode: %v", err)
 	}
