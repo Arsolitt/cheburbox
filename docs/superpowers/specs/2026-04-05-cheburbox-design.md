@@ -466,16 +466,7 @@ Local rule-set compilation.
 - Standalone `rule-set compile` command with `--server`, `--input`, `--output` flags
 - Tests with sample rule-set JSON
 
-### Phase 4 — Validation
-
-Config validation without generation.
-
-- Consistency checks: outbound refs resolve, no cycles, credentials present, DNS present, `endpoint` for servers with inbounds, no duplicate hysteria2 `server_name`
-- sing-box config check via Go API (`box.New` with `include.Context`)
-- `validate` command with `--server` and `--all` flags
-- Tests with valid and invalid configs
-
-### Phase 5 — Multi-Server DAG
+### Phase 4 — Multi-Server DAG
 
 Cross-server dependency resolution.
 
@@ -486,6 +477,15 @@ Cross-server dependency resolution.
 - `--server` flag: generate specified server and transitive upstream dependencies
 - `--dry-run`: stdout JSON output, no disk writes (binary files base64-encoded)
 - Integration tests with multi-server project layouts
+
+### Phase 5 — Validation
+
+Config validation without generation.
+
+- Consistency checks: outbound refs resolve, no cycles, credentials present, DNS present, `endpoint` for servers with inbounds, no duplicate hysteria2 `server_name`
+- sing-box config check via Go API (`box.New` with `include.Context`)
+- `validate` command with `--server` and `--all` flags
+- Tests with valid and invalid configs
 
 ### Phase 6 — Utility Commands
 
