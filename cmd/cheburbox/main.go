@@ -1,7 +1,8 @@
-// Package main is the CLI entry point for cheburbox.
 package main
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -22,7 +23,6 @@ func main() {
 	}
 }
 
-// NewRootCommand creates and returns the root cobra command for cheburbox.
 func NewRootCommand() *cobra.Command {
 	var projectRoot string
 	var jpath string
@@ -39,6 +39,7 @@ func NewRootCommand() *cobra.Command {
 
 	var serverName string
 	var clean bool
+	var dryRun bool
 
 	generateCmd := &cobra.Command{
 		Use:   "generate",
@@ -52,12 +53,13 @@ func NewRootCommand() *cobra.Command {
 					return fmt.Errorf("get working directory: %w", err)
 				}
 			}
-			return runGenerate(command.OutOrStdout(), proj, jpath, serverName, clean)
+			return runGenerate(command.OutOrStdout(), proj, jpath, serverName, clean, dryRun)
 		},
 	}
 
-	generateCmd.Flags().StringVar(&serverName, "server", "", "generate only this server")
+	generateCmd.Flags().StringVar(&serverName, "server", "", "generate only this server and its dependencies")
 	generateCmd.Flags().BoolVar(&clean, "clean", false, "remove undeclared users/credentials")
+	generateCmd.Flags().BoolVar(&dryRun, "dry-run", false, "output JSON to stdout without writing files")
 
 	rootCmd.AddCommand(generateCmd)
 
@@ -89,74 +91,97 @@ func NewRootCommand() *cobra.Command {
 	return rootCmd
 }
 
-func runGenerate(w io.Writer, projectRoot string, jpath string, serverName string, clean bool) error {
+func runGenerate(
+	w io.Writer,
+	projectRoot string,
+	jpath string,
+	serverName string,
+	clean bool,
+	dryRun bool,
+) error {
+	genCfg := generate.GenerateConfig{Clean: clean}
+	jpathAbs := resolveJPath(projectRoot, jpath)
+
+	var results []generate.GenerateResult
+	var err error
+
 	if serverName != "" {
-		return runGenerateServer(w, projectRoot, jpath, serverName, clean)
+		results, err = generate.GenerateServers(projectRoot, jpathAbs, serverName, genCfg)
+	} else {
+		results, err = generate.GenerateAll(projectRoot, jpathAbs, genCfg)
 	}
 
-	return runGenerateAll(w, projectRoot, jpath, clean)
-}
-
-func runGenerateAll(w io.Writer, projectRoot string, jpath string, clean bool) error {
-	servers, err := config.Discover(projectRoot)
 	if err != nil {
-		return fmt.Errorf("discover servers: %w", err)
+		return err
 	}
 
-	if len(servers) == 0 {
+	if len(results) == 0 {
 		fmt.Fprintln(w, "no servers found in project")
 		return nil
 	}
 
-	for _, name := range servers {
-		if err := generateServer(w, projectRoot, jpath, name, clean); err != nil {
-			return fmt.Errorf("server %s: %w", name, err)
+	if dryRun {
+		return writeDryRunOutput(w, results)
+	}
+
+	return writeResults(w, projectRoot, results)
+}
+
+func writeDryRunOutput(w io.Writer, results []generate.GenerateResult) error {
+	type fileEntry struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+
+	type serverEntry struct {
+		Server string      `json:"server"`
+		Files  []fileEntry `json:"files"`
+	}
+
+	output := make([]serverEntry, 0, len(results))
+	for _, result := range results {
+		entry := serverEntry{
+			Server: result.Server,
+			Files:  make([]fileEntry, 0, len(result.Files)),
 		}
+
+		for _, f := range result.Files {
+			content := base64.StdEncoding.EncodeToString(f.Content)
+			entry.Files = append(entry.Files, fileEntry{
+				Path:    f.Path,
+				Content: content,
+			})
+		}
+
+		output = append(output, entry)
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(output); err != nil {
+		return fmt.Errorf("encode dry-run output: %w", err)
 	}
 
 	return nil
 }
 
-func runGenerateServer(w io.Writer, projectRoot string, jpath string, serverName string, clean bool) error {
-	dir := filepath.Join(projectRoot, serverName)
-	if _, err := os.Stat(dir); err != nil {
-		return fmt.Errorf("server %s: %w", serverName, err)
-	}
+func writeResults(w io.Writer, projectRoot string, results []generate.GenerateResult) error {
+	for _, result := range results {
+		dir := filepath.Join(projectRoot, result.Server)
 
-	return generateServer(w, projectRoot, jpath, serverName, clean)
-}
-
-func generateServer(w io.Writer, projectRoot string, jpath string, name string, clean bool) error {
-	dir := filepath.Join(projectRoot, name)
-	jpathAbs := resolveJPath(projectRoot, jpath)
-
-	cfg, err := config.LoadServerWithJsonnet(dir, jpathAbs)
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-
-	if err := config.Validate(cfg); err != nil {
-		return fmt.Errorf("validate: %w", err)
-	}
-
-	genCfg := generate.GenerateConfig{Clean: clean}
-	result, err := generate.GenerateServer(dir, cfg, genCfg)
-	if err != nil {
-		return fmt.Errorf("generate: %w", err)
-	}
-
-	for _, f := range result.Files {
-		path := filepath.Join(dir, f.Path)
-		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-			return fmt.Errorf("create directory for %s: %w", f.Path, err)
+		for _, f := range result.Files {
+			path := filepath.Join(dir, f.Path)
+			if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+				return fmt.Errorf("create directory for %s: %w", f.Path, err)
+			}
+			//nolint:gosec // config files must be readable by the sing-box process.
+			if err := os.WriteFile(path, f.Content, 0o644); err != nil {
+				return fmt.Errorf("write %s: %w", f.Path, err)
+			}
 		}
-		//nolint:gosec // config files must be readable by the sing-box process.
-		if err := os.WriteFile(path, f.Content, 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", f.Path, err)
-		}
-	}
 
-	fmt.Fprintf(w, "Generated %d files for server %s\n", len(result.Files), name)
+		fmt.Fprintf(w, "Generated %d files for server %s\n", len(result.Files), result.Server)
+	}
 
 	return nil
 }
@@ -243,8 +268,6 @@ func runRuleSetCompileServer(w io.Writer, projectRoot string, serverName string)
 	return nil
 }
 
-// resolveJPath returns an absolute jpath. If jpath is relative, it is resolved
-// relative to projectRoot. If jpath is empty, returns empty.
 func resolveJPath(projectRoot string, jpath string) string {
 	if jpath == "" {
 		return ""

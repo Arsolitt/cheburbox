@@ -605,3 +605,189 @@ func findFile(files []FileOutput, name string) *FileOutput {
 	}
 	return nil
 }
+
+func TestGenerateAll(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := t.TempDir()
+
+	setupTestServer(t, projectRoot, "exit-server", config.Config{
+		Version:  1,
+		Endpoint: "10.0.0.1:443",
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Inbounds: []config.Inbound{
+			{
+				Tag:        "vless-in",
+				Type:       inboundTypeVLESS,
+				ListenPort: 443,
+				Users:      []config.InboundUser{{Name: "proxy-server"}},
+				TLS: &config.InboundTLS{
+					Reality: &config.RealityConfig{
+						Handshake: &config.RealityHandshake{
+							Server:     "example.com",
+							ServerPort: 443,
+						},
+					},
+				},
+			},
+		},
+		Outbounds: []config.Outbound{
+			{Type: outboundTypeDirect, Tag: "direct"},
+		},
+	})
+
+	setupTestServer(t, projectRoot, "proxy-server", config.Config{
+		Version: 1,
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Outbounds: []config.Outbound{
+			{Type: outboundTypeDirect, Tag: "direct"},
+			{
+				Type:    inboundTypeVLESS,
+				Tag:     "exit-vless",
+				Server:  "exit-server",
+				Inbound: "vless-in",
+				User:    "proxy-server",
+			},
+		},
+	})
+
+	results, err := GenerateAll(projectRoot, "lib", GenerateConfig{})
+	if err != nil {
+		t.Fatalf("GenerateAll: %v", err)
+	}
+
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+
+	exitResult := findResultByName(results, "exit-server")
+	if exitResult == nil {
+		t.Fatal("exit-server result not found")
+	}
+
+	proxyResult := findResultByName(results, "proxy-server")
+	if proxyResult == nil {
+		t.Fatal("proxy-server result not found")
+	}
+
+	exitConfig := findFile(exitResult.Files, "config.json")
+	if exitConfig == nil {
+		t.Fatal("exit-server config.json not found")
+	}
+
+	var exitParsed map[string]any
+	if err := json.Unmarshal(exitConfig.Content, &exitParsed); err != nil {
+		t.Fatalf("parse exit config: %v", err)
+	}
+
+	exitInbounds, ok := exitParsed["inbounds"].([]any)
+	if !ok || len(exitInbounds) != 1 {
+		t.Fatalf("expected 1 inbound on exit-server, got %d", len(exitInbounds))
+	}
+
+	proxyConfig := findFile(proxyResult.Files, "config.json")
+	if proxyConfig == nil {
+		t.Fatal("proxy-server config.json not found")
+	}
+
+	var proxyParsed map[string]any
+	if err := json.Unmarshal(proxyConfig.Content, &proxyParsed); err != nil {
+		t.Fatalf("parse proxy config: %v", err)
+	}
+
+	proxyOutbounds, ok := proxyParsed["outbounds"].([]any)
+	if !ok {
+		t.Fatal("proxy-server has no outbounds")
+	}
+
+	foundVlessOut := false
+	for _, ob := range proxyOutbounds {
+		obMap, ok := ob.(map[string]any)
+		if !ok {
+			continue
+		}
+		if obMap["type"] == "vless" {
+			foundVlessOut = true
+		}
+	}
+	if !foundVlessOut {
+		t.Error("proxy-server should have a vless outbound")
+	}
+}
+
+func TestGenerateAllEmpty(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := t.TempDir()
+
+	results, err := GenerateAll(projectRoot, "lib", GenerateConfig{})
+	if err != nil {
+		t.Fatalf("GenerateAll: %v", err)
+	}
+	if results != nil {
+		t.Errorf("expected nil results for empty project, got %d", len(results))
+	}
+}
+
+func TestGenerateAllCycle(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := t.TempDir()
+
+	setupTestServer(t, projectRoot, "srv-a", config.Config{
+		Version: 1,
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Outbounds: []config.Outbound{
+			{Type: inboundTypeVLESS, Tag: "out", Server: "srv-b", Inbound: "vless-in"},
+		},
+	})
+
+	setupTestServer(t, projectRoot, "srv-b", config.Config{
+		Version: 1,
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Outbounds: []config.Outbound{
+			{Type: inboundTypeVLESS, Tag: "out", Server: "srv-a", Inbound: "vless-in"},
+		},
+	})
+
+	_, err := GenerateAll(projectRoot, "lib", GenerateConfig{})
+	if err == nil {
+		t.Fatal("expected error for cycle")
+	}
+}
+
+func findResultByName(results []GenerateResult, server string) *GenerateResult {
+	for i := range results {
+		if results[i].Server == server {
+			return &results[i]
+		}
+	}
+	return nil
+}
+
+func setupTestServer(t *testing.T, root string, name string, cfg config.Config) {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cheburbox.json"), data, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+}

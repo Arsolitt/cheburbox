@@ -87,7 +87,7 @@ func TestGenerateRun(t *testing.T) {
 			tt.setup(t, root)
 
 			var buf bytes.Buffer
-			err := runGenerate(&buf, root, "lib", tt.server, false)
+			err := runGenerate(&buf, root, "lib", tt.server, false, false)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -123,7 +123,7 @@ func TestGenerateWritesConfig(t *testing.T) {
 	}`)
 
 	var buf bytes.Buffer
-	err := runGenerate(&buf, root, "lib", "my-server", false)
+	err := runGenerate(&buf, root, "lib", "my-server", false, false)
 	if err != nil {
 		t.Fatalf("runGenerate: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestGenerateCredentialPersistence(t *testing.T) {
 	}`)
 
 	var buf1 bytes.Buffer
-	err := runGenerate(&buf1, root, "lib", "srv", false)
+	err := runGenerate(&buf1, root, "lib", "srv", false, false)
 	if err != nil {
 		t.Fatalf("first runGenerate: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestGenerateCredentialPersistence(t *testing.T) {
 	}
 
 	var buf2 bytes.Buffer
-	err = runGenerate(&buf2, root, "lib", "srv", false)
+	err = runGenerate(&buf2, root, "lib", "srv", false, false)
 	if err != nil {
 		t.Fatalf("second runGenerate: %v", err)
 	}
@@ -190,6 +190,69 @@ func TestGenerateCredentialPersistence(t *testing.T) {
 
 	if string(data1) != string(data2) {
 		t.Error("credentials not persisted: config.json differs between runs")
+	}
+}
+
+func TestGenerateDryRun(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	setupServer(t, root, "srv-a", `{
+		"version": 1,
+		"endpoint": "1.2.3.4",
+		"dns": {
+			"servers": [{"type": "local", "tag": "dns-local"}],
+			"final": "dns-local"
+		},
+		"outbounds": [{"type": "direct", "tag": "direct"}]
+	}`)
+
+	var buf bytes.Buffer
+	err := runGenerate(&buf, root, "lib", "", false, true)
+	if err != nil {
+		t.Fatalf("runGenerate: %v", err)
+	}
+
+	var output []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &output); err != nil {
+		t.Fatalf("parse dry-run output: %v", err)
+	}
+
+	if len(output) != 1 {
+		t.Fatalf("expected 1 server entry, got %d", len(output))
+	}
+	if output[0]["server"] != "srv-a" {
+		t.Errorf("server = %v, want srv-a", output[0]["server"])
+	}
+	files, ok := output[0]["files"].([]any)
+	if !ok || len(files) == 0 {
+		t.Fatal("expected files array")
+	}
+}
+
+func TestGenerateDryRunNoDiskWrite(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	setupServer(t, root, "srv-a", `{
+		"version": 1,
+		"endpoint": "1.2.3.4",
+		"dns": {
+			"servers": [{"type": "local", "tag": "dns-local"}],
+			"final": "dns-local"
+		},
+		"outbounds": [{"type": "direct", "tag": "direct"}]
+	}`)
+
+	var buf bytes.Buffer
+	err := runGenerate(&buf, root, "lib", "", false, true)
+	if err != nil {
+		t.Fatalf("runGenerate: %v", err)
+	}
+
+	configPath := filepath.Join(root, "srv-a", "config.json")
+	if _, err := os.Stat(configPath); err == nil {
+		t.Fatal("config.json should not be written in dry-run mode")
 	}
 }
 
