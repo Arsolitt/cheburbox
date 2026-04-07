@@ -17,6 +17,7 @@ type InboundCredentials struct {
 	Users        map[string]UserCreds
 	Reality      *RealityKeys
 	ObfsPassword string
+	ServerName   string
 }
 
 // UserCreds holds per-user credentials.

@@ -149,14 +149,31 @@ func buildCrossServerVlessOutbound(
 		Flow: out.Flow,
 	}
 
+	if out.DomainResolver != "" {
+		opts.DomainResolver = &option.DomainResolveOptions{
+			Server: out.DomainResolver,
+		}
+	}
+
 	if creds.Reality != nil {
-		opts.TLS = &option.OutboundTLSOptions{
-			Enabled: true,
+		tlsOpts := &option.OutboundTLSOptions{
+			Enabled:    true,
+			ServerName: creds.ServerName,
+			UTLS: &option.OutboundUTLSOptions{
+				Enabled:     true,
+				Fingerprint: "firefox",
+			},
 			Reality: &option.OutboundRealityOptions{
 				Enabled:   true,
 				PublicKey: creds.Reality.PublicKey,
 				ShortID:   firstShortID(creds.Reality.ShortID),
 			},
+		}
+		opts.TLS = tlsOpts
+	} else if creds.ServerName != "" {
+		opts.TLS = &option.OutboundTLSOptions{
+			Enabled:    true,
+			ServerName: creds.ServerName,
 		}
 	}
 

@@ -147,15 +147,17 @@ func TestBuildVlessCrossServerOutbound(t *testing.T) {
 			PublicKey: "pub-key-abc",
 			ShortID:   []string{"abcdef"},
 		},
+		ServerName: "ams.example.com",
 	})
 
 	out := config.Outbound{
-		Type:    "vless",
-		Tag:     "remote-vless",
-		Server:  "remote",
-		Inbound: "vless-in",
-		User:    "alice",
-		Flow:    "xtls-rprx-vision",
+		Type:           "vless",
+		Tag:            "remote-vless",
+		Server:         "remote",
+		Inbound:        "vless-in",
+		User:           "alice",
+		Flow:           "xtls-rprx-vision",
+		DomainResolver: "dns-intl",
 	}
 
 	result, err := BuildOutboundWithState(out, state)
@@ -202,6 +204,24 @@ func TestBuildVlessCrossServerOutbound(t *testing.T) {
 	}
 	if !opts.TLS.Reality.Enabled {
 		t.Error("Reality.Enabled = false, want true")
+	}
+	if opts.TLS.ServerName != "ams.example.com" {
+		t.Errorf("TLS.ServerName = %q, want ams.example.com", opts.TLS.ServerName)
+	}
+	if opts.TLS.UTLS == nil {
+		t.Fatal("TLS.UTLS is nil, want non-nil")
+	}
+	if !opts.TLS.UTLS.Enabled {
+		t.Error("TLS.UTLS.Enabled = false, want true")
+	}
+	if opts.TLS.UTLS.Fingerprint != "firefox" {
+		t.Errorf("TLS.UTLS.Fingerprint = %q, want firefox", opts.TLS.UTLS.Fingerprint)
+	}
+	if opts.DomainResolver == nil {
+		t.Fatal("DomainResolver is nil, want non-nil")
+	}
+	if opts.DomainResolver.Server != "dns-intl" {
+		t.Errorf("DomainResolver.Server = %q, want dns-intl", opts.DomainResolver.Server)
 	}
 }
 

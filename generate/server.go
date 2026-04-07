@@ -165,6 +165,7 @@ func resolveCredentials(
 
 		resolveRealityKeys(in, persisted, &creds)
 		resolveObfsPassword(in, persisted, &creds)
+		resolveServerName(in, &creds)
 
 		credsMap[in.Tag] = creds
 	}
@@ -206,9 +207,17 @@ func resolveRealityKeys(
 	}
 
 	if rk, ok := persisted.RealityKeys[in.Tag]; ok {
+		publicKey := rk.PublicKey
+		if publicKey == "" && rk.PrivateKey != "" {
+			var deriveErr error
+			publicKey, deriveErr = DerivePublicKey(rk.PrivateKey)
+			if deriveErr != nil {
+				return
+			}
+		}
 		creds.Reality = &RealityKeys{
 			PrivateKey: rk.PrivateKey,
-			PublicKey:  rk.PublicKey,
+			PublicKey:  publicKey,
 			ShortID:    rk.ShortID,
 		}
 		return
@@ -238,6 +247,12 @@ func resolveObfsPassword(
 	}
 
 	creds.ObfsPassword = GeneratePassword()
+}
+
+func resolveServerName(in config.Inbound, creds *InboundCredentials) {
+	if in.TLS != nil {
+		creds.ServerName = in.TLS.ServerName
+	}
 }
 
 // resolveCertificates handles TLS certificate generation for hysteria2 inbounds.
@@ -781,6 +796,9 @@ func mergeCredentialsIntoState(state *ServerState, server string, tag string, cr
 	}
 	if existing.ObfsPassword == "" && creds.ObfsPassword != "" {
 		existing.ObfsPassword = creds.ObfsPassword
+	}
+	if existing.ServerName == "" && creds.ServerName != "" {
+		existing.ServerName = creds.ServerName
 	}
 
 	state.StoreInboundCredentials(server, tag, existing)
