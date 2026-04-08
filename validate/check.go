@@ -43,3 +43,76 @@ func checkHysteria2ServerNameCollision(server string, cfg config.Config) []error
 
 	return errs
 }
+
+// checkOutboundInboundRefs validates that outbound inbound references point to
+// existing inbound tags on the target server.
+func checkOutboundInboundRefs(configs map[string]config.Config) []error {
+	serverTags := make(map[string]map[string]bool) // server -> set of inbound tags
+	for name, cfg := range configs {
+		tags := make(map[string]bool)
+		for _, in := range cfg.Inbounds {
+			tags[in.Tag] = true
+		}
+		serverTags[name] = tags
+	}
+
+	var errs []error
+
+	for name, cfg := range configs {
+		for _, out := range cfg.Outbounds {
+			if out.Server == "" || out.Inbound == "" {
+				continue
+			}
+			tags, ok := serverTags[out.Server]
+			if !ok {
+				continue
+			}
+			if !tags[out.Inbound] {
+				errs = append(errs, fmt.Errorf(
+					"server %q outbound %q references inbound %q on server %q, but no such inbound exists",
+					name,
+					out.Tag,
+					out.Inbound,
+					out.Server,
+				))
+			}
+		}
+	}
+
+	return errs
+}
+
+// checkOutboundGroupRefs validates that urltest and selector outbound groups
+// reference only outbound tags that exist in the same server.
+//
+//nolint:unparam // server parameter is used by callers with different server names.
+func checkOutboundGroupRefs(server string, cfg config.Config) []error {
+	validTags := make(map[string]bool)
+	for _, out := range cfg.Outbounds {
+		validTags[out.Tag] = true
+	}
+
+	var errs []error
+
+	for _, out := range cfg.Outbounds {
+		if out.Type != "urltest" && out.Type != "selector" {
+			continue
+		}
+		if len(out.Outbounds) == 0 {
+			continue
+		}
+		for _, ref := range out.Outbounds {
+			if !validTags[ref] {
+				errs = append(errs, fmt.Errorf(
+					"server %q %s outbound %q references unknown outbound %q",
+					server,
+					out.Type,
+					out.Tag,
+					ref,
+				))
+			}
+		}
+	}
+
+	return errs
+}
