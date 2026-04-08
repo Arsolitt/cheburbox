@@ -423,6 +423,7 @@ Cheburbox checks at generation time:
 - Outbound `server` references an existing server directory (direct child of project root)
 - Outbound `inbound` references an existing inbound on target server
 - No two hysteria2 inbounds on same server share the same `tls.server_name` (would conflict on cert files)
+- `urltest` and `selector` outbound groups reference only outbound tags that exist in the same server's outbound list
 - DNS section is present
 - `endpoint` is present for servers with inbounds
 
@@ -480,12 +481,43 @@ Cross-server dependency resolution.
 
 ### Phase 5 — Validation
 
-Config validation without generation.
+Config validation without generation. Two-phase approach: cheburbox-level consistency checks on `cheburbox.json`, then sing-box-level validation on generated `config.json`.
 
-- Consistency checks: outbound refs resolve, no cycles, credentials present, DNS present, `endpoint` for servers with inbounds, no duplicate hysteria2 `server_name`
-- sing-box config check via Go API (`box.New` with `include.Context`)
-- `validate` command with `--server` and `--all` flags
-- Tests with valid and invalid configs
+#### Phase 1: Consistency Checks (on cheburbox.json)
+
+Validates structural integrity of the cheburbox configuration across all servers. Uses `config.Validate()` for per-server schema checks and `generate/graph.go` for cross-server dependency checks. Does not require `config.json` to exist.
+
+- **Per-server checks** (reuses `config.Validate()`):
+  - `version` field is present and equals `1`
+  - DNS section is present (at least one DNS server defined)
+  - `endpoint` is present for servers with inbounds
+- **Cross-server checks** (reuses `generate/graph.go`):
+  - Outbound `server` references an existing server directory
+  - No circular dependencies between servers (DAG cycle detection)
+- **Additional consistency checks** (new in `validate` package):
+  - No two hysteria2 inbounds on the same server share the same `tls.server_name` (would conflict on cert files)
+  - Outbound `inbound` references an existing inbound tag on the target server
+  - `urltest` and `selector` outbound groups reference only outbound tags that exist in the same server's outbound list
+- **Credential validation** is intentionally omitted: sing-box check (phase 2) catches missing/invalid credentials in the generated config, and new users without credentials is normal behavior (generate creates them)
+
+#### Phase 2: sing-box Config Check (on generated config.json)
+
+Validates the generated sing-box configuration using the sing-box Go API. Only runs when `config.json` exists for a server. Servers without `config.json` are skipped with a warning.
+
+- Parse `config.json` into `option.Options` using `include.Context()` (with protocol registries)
+- Call `box.New()` to fully validate the config (route rules, DNS rules, protocol-specific options, rule-set references)
+- Immediately call `instance.Close()` — no network resources are created
+- Report validation result per server
+
+#### `validate` Command
+
+```
+cheburbox validate [--server <name>]
+```
+
+- **No flags** (default): validate all servers in the project
+- **`--server <name>`**: validate the specified server and its transitive upstream dependencies (same semantics as `generate --server`)
+- Output: per-server validation result (pass/fail/warning), then non-zero exit code if any check fails
 
 ### Phase 6 — Utility Commands
 
