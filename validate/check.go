@@ -8,9 +8,16 @@
 package validate
 
 import (
+	"context"
 	"fmt"
+	"os"
+
+	"github.com/sagernet/sing-box"
+	"github.com/sagernet/sing-box/include"
+	singjson "github.com/sagernet/sing/common/json"
 
 	"github.com/Arsolitt/cheburbox/config"
+	"github.com/Arsolitt/cheburbox/generate"
 )
 
 // checkHysteria2ServerNameCollision detects hysteria2 inbounds that share
@@ -80,6 +87,49 @@ func checkOutboundInboundRefs(configs map[string]config.Config) []error {
 	}
 
 	return errs
+}
+
+// singBoxCheck reads a config.json file, parses it with registry-aware
+// unmarshaling, creates a sing-box instance, and immediately closes it.
+// This replicates the behavior of `sing-box check`.
+func singBoxCheck(configPath string) error {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("read config.json: %w", err)
+	}
+
+	ctx := include.Context(context.Background())
+
+	opts, unmarshalErr := singjson.UnmarshalExtendedContext[box.Options](ctx, data)
+	if unmarshalErr != nil {
+		return fmt.Errorf("parse config.json: %w", unmarshalErr)
+	}
+
+	opts.Context = ctx
+
+	instance, err := box.New(opts)
+	if err != nil {
+		return fmt.Errorf("sing-box check: %w", err)
+	}
+
+	instance.Close()
+
+	return nil
+}
+
+// findGenerateFile finds a FileOutput by path. Returns nil if not found.
+func findGenerateFile(files []generate.FileOutput, path string) *generate.FileOutput {
+	for i := range files {
+		if files[i].Path == path {
+			return &files[i]
+		}
+	}
+	return nil
+}
+
+// ptr returns a pointer to the given string value.
+func ptr(s string) *string {
+	return &s
 }
 
 // checkOutboundGroupRefs validates that urltest and selector outbound groups

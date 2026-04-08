@@ -1,10 +1,14 @@
 package validate
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Arsolitt/cheburbox/config"
+	"github.com/Arsolitt/cheburbox/generate"
 )
 
 func TestCheckHysteria2ServerNameCollision(t *testing.T) {
@@ -232,5 +236,101 @@ func TestCheckOutboundGroupRefsEmptyOutbounds(t *testing.T) {
 	errs := checkOutboundGroupRefs("srv1", cfg)
 	if len(errs) != 0 {
 		t.Fatalf("expected 0 errors, got %d: %v", len(errs), errs)
+	}
+}
+
+func setupTestServer(t *testing.T, root string, name string, cfg config.Config) {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cheburbox.json"), data, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+}
+
+func TestSingBoxCheckValidConfig(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	cfg := config.Config{
+		Version:  1,
+		Endpoint: "1.2.3.4",
+		DNS: config.DNS{
+			Final:   ptr("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Inbounds: []config.Inbound{
+			{
+				Tag:        "hy2-in",
+				Type:       "hysteria2",
+				ListenPort: 443,
+				TLS:        &config.InboundTLS{ServerName: "example.com"},
+				Users:      []config.InboundUser{{Name: "alice"}},
+			},
+		},
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+		},
+		Route: &config.Route{
+			Final:               "direct",
+			AutoDetectInterface: true,
+		},
+	}
+
+	setupTestServer(t, root, "test-srv", cfg)
+
+	result, err := generate.GenerateServer(filepath.Join(root, "test-srv"), cfg, generate.GenerateConfig{})
+	if err != nil {
+		t.Fatalf("GenerateServer: %v", err)
+	}
+
+	configFile := findGenerateFile(result.Files, "config.json")
+	if configFile == nil {
+		t.Fatal("config.json not found in generated files")
+	}
+
+	configPath := filepath.Join(root, "config.json")
+	if err := os.WriteFile(configPath, configFile.Content, 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	if err := singBoxCheck(configPath); err != nil {
+		t.Errorf("singBoxCheck returned unexpected error: %v", err)
+	}
+}
+
+func TestSingBoxCheckInvalidConfig(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+
+	invalidConfig := `{"inbounds": [{"type": "invalid_type", "tag": "bad"}]}`
+	if err := os.WriteFile(configPath, []byte(invalidConfig), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	err := singBoxCheck(configPath)
+	if err == nil {
+		t.Error("singBoxCheck should return error for invalid config")
+	}
+}
+
+func TestSingBoxCheckMissingFile(t *testing.T) {
+	t.Parallel()
+
+	err := singBoxCheck("/nonexistent/path/config.json")
+	if err == nil {
+		t.Error("singBoxCheck should return error for missing file")
+	}
+
+	if !strings.Contains(err.Error(), "read config.json") {
+		t.Errorf("error should contain 'read config.json', got: %v", err)
 	}
 }
