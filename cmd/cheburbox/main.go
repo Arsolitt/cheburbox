@@ -14,6 +14,7 @@ import (
 	"github.com/Arsolitt/cheburbox/config"
 	"github.com/Arsolitt/cheburbox/generate"
 	"github.com/Arsolitt/cheburbox/ruleset"
+	"github.com/Arsolitt/cheburbox/validate"
 )
 
 func main() {
@@ -88,6 +89,27 @@ func NewRootCommand() *cobra.Command {
 	ruleSetCmd.AddCommand(compileCmd)
 	rootCmd.AddCommand(ruleSetCmd)
 
+	var validateServer string
+
+	validateCmd := &cobra.Command{
+		Use:   "validate",
+		Short: "Validate cheburbox configurations without generating files.",
+		RunE: func(command *cobra.Command, _ []string) error {
+			proj := projectRoot
+			if proj == "" {
+				var err error
+				proj, err = os.Getwd()
+				if err != nil {
+					return fmt.Errorf("get working directory: %w", err)
+				}
+			}
+			return runValidate(command.OutOrStdout(), proj, jpath, validateServer)
+		},
+	}
+
+	validateCmd.Flags().StringVar(&validateServer, "server", "", "validate only this server and its dependencies")
+	rootCmd.AddCommand(validateCmd)
+
 	return rootCmd
 }
 
@@ -125,6 +147,51 @@ func runGenerate(
 	}
 
 	return writeResults(w, projectRoot, results)
+}
+
+func runValidate(w io.Writer, projectRoot string, jpath string, serverName string) error {
+	jpathAbs := resolveJPath(projectRoot, jpath)
+
+	var results []validate.ServerResult
+	var err error
+
+	if serverName != "" {
+		results, err = validate.ValidateServers(projectRoot, jpathAbs, serverName)
+	} else {
+		results, err = validate.ValidateAll(projectRoot, jpathAbs)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if len(results) == 0 {
+		fmt.Fprintln(w, "no servers found in project")
+		return nil
+	}
+
+	hasErrors := false
+
+	for _, r := range results {
+		for _, warn := range r.Warnings {
+			fmt.Fprintf(w, "WARN  %s: %s\n", r.Server, warn)
+		}
+
+		if r.Failed() {
+			hasErrors = true
+			for _, e := range r.Errors {
+				fmt.Fprintf(w, "FAIL  %s: %s\n", r.Server, e)
+			}
+		} else {
+			fmt.Fprintf(w, "PASS  %s\n", r.Server)
+		}
+	}
+
+	if hasErrors {
+		return errors.New("validation failed")
+	}
+
+	return nil
 }
 
 func writeDryRunOutput(w io.Writer, results []generate.GenerateResult) error {
