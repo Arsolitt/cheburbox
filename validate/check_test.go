@@ -259,20 +259,10 @@ func TestSingBoxCheckValidConfig(t *testing.T) {
 
 	root := t.TempDir()
 	cfg := config.Config{
-		Version:  1,
-		Endpoint: "1.2.3.4",
+		Version: 1,
 		DNS: config.DNS{
-			Final:   ptr("dns-local"),
+			Final:   new("dns-local"),
 			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
-		},
-		Inbounds: []config.Inbound{
-			{
-				Tag:        "hy2-in",
-				Type:       "hysteria2",
-				ListenPort: 443,
-				TLS:        &config.InboundTLS{ServerName: "example.com"},
-				Users:      []config.InboundUser{{Name: "alice"}},
-			},
 		},
 		Outbounds: []config.Outbound{
 			{Type: "direct", Tag: "direct"},
@@ -332,5 +322,186 @@ func TestSingBoxCheckMissingFile(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "read config.json") {
 		t.Errorf("error should contain 'read config.json', got: %v", err)
+	}
+}
+
+func TestValidateAllPhase1Only(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	cfg := config.Config{
+		Version: 1,
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+		},
+		Route: &config.Route{
+			Final:               "direct",
+			AutoDetectInterface: true,
+		},
+	}
+
+	setupTestServer(t, root, "srv1", cfg)
+
+	results, err := ValidateAll(root, "")
+	if err != nil {
+		t.Fatalf("ValidateAll returned unexpected error: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if results[0].Server != "srv1" {
+		t.Errorf("expected server %q, got %q", "srv1", results[0].Server)
+	}
+
+	if results[0].Failed() {
+		t.Errorf("expected no errors, got: %v", results[0].Errors)
+	}
+}
+
+func TestValidateAllPhase1Errors(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	cfg := config.Config{
+		Version: 2,
+	}
+
+	setupTestServer(t, root, "bad-srv", cfg)
+
+	results, err := ValidateAll(root, "")
+	if err != nil {
+		t.Fatalf("ValidateAll returned unexpected error: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if !results[0].Failed() {
+		t.Error("expected errors for invalid config")
+	}
+}
+
+func TestValidateAllWithCycle(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	cfgA := config.Config{
+		Version: 1,
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+			{Type: "direct", Tag: "to-b", Server: "srv-b", Inbound: "in-b"},
+		},
+		Route: &config.Route{
+			Final:               "direct",
+			AutoDetectInterface: true,
+		},
+	}
+	cfgB := config.Config{
+		Version: 1,
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Inbounds: []config.Inbound{
+			{Type: "direct", Tag: "in-b"},
+		},
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+			{Type: "direct", Tag: "to-a", Server: "srv-a", Inbound: "in-a"},
+		},
+		Route: &config.Route{
+			Final:               "direct",
+			AutoDetectInterface: true,
+		},
+	}
+
+	setupTestServer(t, root, "srv-a", cfgA)
+	setupTestServer(t, root, "srv-b", cfgB)
+
+	results, err := ValidateAll(root, "")
+	if err != nil {
+		t.Fatalf("ValidateAll returned unexpected error: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if results[0].Server != "(global)" {
+		t.Errorf("expected server %q, got %q", "(global)", results[0].Server)
+	}
+
+	if !results[0].Failed() {
+		t.Fatal("expected errors for cyclic dependency")
+	}
+
+	if !strings.Contains(results[0].Errors[0].Error(), "cycle") {
+		t.Errorf("error should mention cycle, got: %v", results[0].Errors[0])
+	}
+}
+
+func TestValidateAllEmptyProject(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	results, err := ValidateAll(root, "")
+	if err != nil {
+		t.Fatalf("ValidateAll returned unexpected error: %v", err)
+	}
+
+	if len(results) != 0 {
+		t.Fatalf("expected 0 results, got %d", len(results))
+	}
+}
+
+func TestValidateServersWithServerFlag(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	validCfg := config.Config{
+		Version: 1,
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+		},
+		Route: &config.Route{
+			Final:               "direct",
+			AutoDetectInterface: true,
+		},
+	}
+
+	setupTestServer(t, root, "target", validCfg)
+	setupTestServer(t, root, "other", validCfg)
+
+	results, err := ValidateServers(root, "", "target")
+	if err != nil {
+		t.Fatalf("ValidateServers returned unexpected error: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if results[0].Server != "target" {
+		t.Errorf("expected server %q, got %q", "target", results[0].Server)
+	}
+
+	if results[0].Failed() {
+		t.Errorf("expected no errors, got: %v", results[0].Errors)
 	}
 }
