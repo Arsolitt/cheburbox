@@ -505,3 +505,136 @@ func TestValidateServersWithServerFlag(t *testing.T) {
 		t.Errorf("expected no errors, got: %v", results[0].Errors)
 	}
 }
+
+func TestValidateAllWithGeneratedConfigs(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := t.TempDir()
+
+	exitCfg := config.Config{
+		Version:  1,
+		Endpoint: "10.0.0.1",
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Inbounds: []config.Inbound{
+			{
+				Tag:        "vless-in",
+				Type:       "vless",
+				ListenPort: 443,
+				Users:      []config.InboundUser{{Name: "proxy-server"}},
+			},
+		},
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+		},
+		Route: &config.Route{
+			Final:               "direct",
+			AutoDetectInterface: true,
+		},
+	}
+
+	proxyCfg := config.Config{
+		Version: 1,
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+			{
+				Type:    "vless",
+				Tag:     "exit-vless",
+				Server:  "exit-server",
+				Inbound: "vless-in",
+				User:    "proxy-server",
+			},
+		},
+		Route: &config.Route{
+			Final:               "direct",
+			AutoDetectInterface: true,
+		},
+	}
+
+	setupTestServer(t, projectRoot, "exit-server", exitCfg)
+	setupTestServer(t, projectRoot, "proxy-server", proxyCfg)
+
+	genResults, err := generate.GenerateAll(projectRoot, "", generate.GenerateConfig{})
+	if err != nil {
+		t.Fatalf("GenerateAll: %v", err)
+	}
+
+	for _, r := range genResults {
+		dir := filepath.Join(projectRoot, r.Server)
+		for _, f := range r.Files {
+			path := filepath.Join(dir, f.Path)
+			if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+				t.Fatalf("mkdir: %v", err)
+			}
+			if err := os.WriteFile(path, f.Content, 0o644); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+		}
+	}
+
+	validateResults, err := ValidateAll(projectRoot, "")
+	if err != nil {
+		t.Fatalf("ValidateAll: %v", err)
+	}
+
+	if len(validateResults) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(validateResults))
+	}
+
+	for _, r := range validateResults {
+		if r.Failed() {
+			for _, e := range r.Errors {
+				t.Errorf("server %s failed: %v", r.Server, e)
+			}
+		}
+	}
+}
+
+func TestValidateAllPhase2SkippedWithoutConfig(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := t.TempDir()
+
+	setupTestServer(t, projectRoot, "srv-a", config.Config{
+		Version:  1,
+		Endpoint: "1.2.3.4",
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+		},
+		Route: &config.Route{
+			Final:               "direct",
+			AutoDetectInterface: true,
+		},
+	})
+
+	results, err := ValidateAll(projectRoot, "")
+	if err != nil {
+		t.Fatalf("ValidateAll: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if results[0].Failed() {
+		t.Errorf("expected server to pass Phase 1, got errors: %v", results[0].Errors)
+	}
+
+	if len(results[0].Warnings) != 1 {
+		t.Errorf(
+			"expected 1 warning (skipped sing-box check), got %d: %v",
+			len(results[0].Warnings),
+			results[0].Warnings,
+		)
+	}
+}
