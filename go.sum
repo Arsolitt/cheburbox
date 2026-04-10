@@ -227,8 +227,12 @@ github.com/sagernet/quic-go v0.59.0-sing-box-mod.4 h1:6qvrUW79S+CrPwWz6cMePXohgj
 github.com/sagernet/quic-go v0.59.0-sing-box-mod.4/go.mod h1:OqILvS182CyOol5zNNo6bguvOGgXzV459+chpRaUC+4=
 github.com/sagernet/sing v0.8.3 h1:zGMy9M1deBPEew9pCYIUHKeE+/lDQ5A2CBqjBjjzqkA=
 github.com/sagernet/sing v0.8.3/go.mod h1:ARkL0gM13/Iv5VCZmci/NuoOlePoIsW0m7BWfln/Hak=
+github.com/sagernet/sing v0.8.4 h1:Fj+jlY3F8vhcRfz/G/P3Dwcs5wqnmyNPT7u1RVVmjFI=
+github.com/sagernet/sing v0.8.4/go.mod h1:ARkL0gM13/Iv5VCZmci/NuoOlePoIsW0m7BWfln/Hak=
 github.com/sagernet/sing-box v1.13.5 h1:RCEiI4EH4ArqjUXFbq4wyu5/2zNIXGnbTR6RZOFi6X0=
 github.com/sagernet/sing-box v1.13.5/go.mod h1:2DvR+X4s8CeTfhyBJ+zNE1QzUAIDBUYjlvqm5DZHVHM=
+github.com/sagernet/sing-box v1.13.7 h1:ZTGTe5yemfUrvZx8jLXSAW4pbTKNNio7/tL3M3j8sI0=
+github.com/sagernet/sing-box v1.13.7/go.mod h1:Di6rbMDc7GQxF1SrUlIsneX8gNte8ODTCJ2hwb+kJ2I=
 github.com/sagernet/sing-mux v0.3.4 h1:ZQplKl8MNXutjzbMVtWvWG31fohhgOfCuUZR4dVQ8+s=
 github.com/sagernet/sing-mux v0.3.4/go.mod h1:QvlKMyNBNrQoyX4x+gq028uPbLM2XeRpWtDsWBJbFSk=
 github.com/sagernet/sing-quic v0.6.1 h1:lx0tcm99wIA1RkyvILNzRSsMy1k7TTQYIhx71E/WBlw=
@@ -241,6 +245,8 @@ github.com/sagernet/sing-shadowtls v0.2.1-0.20250503051639-fcd445d33c11 h1:tK+75
 github.com/sagernet/sing-shadowtls v0.2.1-0.20250503051639-fcd445d33c11/go.mod h1:sWqKnGlMipCHaGsw1sTTlimyUpgzP4WP3pjhCsYt9oA=
 github.com/sagernet/sing-tun v0.8.6 h1:NydXFikSXhiKqhahHKtuZ90HQPZFzlOFVRONmkr4C7I=
 github.com/sagernet/sing-tun v0.8.6/go.mod h1:pLCo4o+LacXEzz0bhwhJkKBjLlKOGPBNOAZ97ZVZWzs=
+github.com/sagernet/sing-tun v0.8.7 h1:q49cI7Cbp+BcgzaJitQ9QdLO77BqnnaQRkSEMoGmF3g=
+github.com/sagernet/sing-tun v0.8.7/go.mod h1:pLCo4o+LacXEzz0bhwhJkKBjLlKOGPBNOAZ97ZVZWzs=
 github.com/sagernet/sing-vmess v0.2.8-0.20250909125414-3aed155119a1 h1:aSwUNYUkVyVvdmBSufR8/nRFonwJeKSIROxHcm5br9o=
 github.com/sagernet/sing-vmess v0.2.8-0.20250909125414-3aed155119a1/go.mod h1:P11scgTxMxVVQ8dlM27yNm3Cro40mD0+gHbnqrNGDuY=
 github.com/sagernet/smux v1.5.50-sing-box-mod.1 h1:XkJcivBC9V4wBjiGXIXZ229aZCU1hzcbp6kSkkyQ478=
