@@ -279,10 +279,25 @@ func checkOutboundInboundRefs(configs map[string]config.Config) []error {
 // unmarshaling, creates a sing-box instance, and immediately closes it.
 // This replicates the behavior of `sing-box check`.
 func singBoxCheck(configPath string) error {
+	configDir := filepath.Dir(configPath)
+
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("read config.json: %w", err)
 	}
+
+	oldWd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+
+	if err := os.Chdir(configDir); err != nil {
+		return fmt.Errorf("change to config directory: %w", err)
+	}
+
+	defer func() {
+		_ = os.Chdir(oldWd)
+	}()
 
 	ctx := include.Context(context.Background())
 
@@ -298,7 +313,7 @@ func singBoxCheck(configPath string) error {
 		return fmt.Errorf("sing-box check: %w", err)
 	}
 
-	instance.Close()
+	_ = instance.Close()
 
 	return nil
 }

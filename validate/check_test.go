@@ -255,8 +255,6 @@ func setupTestServer(t *testing.T, root string, name string, cfg config.Config) 
 }
 
 func TestSingBoxCheckValidConfig(t *testing.T) {
-	t.Parallel()
-
 	root := t.TempDir()
 	cfg := config.Config{
 		Version: 1,
@@ -296,8 +294,6 @@ func TestSingBoxCheckValidConfig(t *testing.T) {
 }
 
 func TestSingBoxCheckInvalidConfig(t *testing.T) {
-	t.Parallel()
-
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")
 
@@ -313,8 +309,6 @@ func TestSingBoxCheckInvalidConfig(t *testing.T) {
 }
 
 func TestSingBoxCheckMissingFile(t *testing.T) {
-	t.Parallel()
-
 	err := singBoxCheck("/nonexistent/path/config.json")
 	if err == nil {
 		t.Error("singBoxCheck should return error for missing file")
@@ -507,8 +501,6 @@ func TestValidateServersWithServerFlag(t *testing.T) {
 }
 
 func TestValidateAllWithGeneratedConfigs(t *testing.T) {
-	t.Parallel()
-
 	projectRoot := t.TempDir()
 
 	exitCfg := config.Config{
