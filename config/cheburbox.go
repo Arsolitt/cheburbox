@@ -76,6 +76,7 @@ type Inbound struct {
 	IPRoute2TableIndex     int               `json:"iproute2_table_index,omitempty"`
 	IPRoute2RuleIndex      int               `json:"iproute2_rule_index,omitempty"`
 	AutoRoute              bool              `json:"auto_route,omitempty"`
+	AutoRedirect           bool              `json:"auto_redirect,omitempty"`
 	StrictRoute            bool              `json:"strict_route,omitempty"`
 	EndpointIndependentNAT bool              `json:"endpoint_independent_nat,omitempty"`
 }

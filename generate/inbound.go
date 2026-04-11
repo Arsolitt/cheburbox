@@ -253,6 +253,7 @@ func buildTunInbound(in config.Inbound) (option.Inbound, error) {
 		MTU:                    intToUint32(in.MTU),
 		Address:                badoption.Listable[netip.Prefix](addrs),
 		AutoRoute:              in.AutoRoute,
+		AutoRedirect:           in.AutoRedirect,
 		StrictRoute:            in.StrictRoute,
 		IPRoute2TableIndex:     in.IPRoute2TableIndex,
 		IPRoute2RuleIndex:      in.IPRoute2RuleIndex,

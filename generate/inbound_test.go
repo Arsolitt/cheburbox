@@ -265,6 +265,7 @@ func TestBuildTunInbound(t *testing.T) {
 		Address:                []string{"172.19.0.1/30"},
 		MTU:                    1500,
 		AutoRoute:              true,
+		AutoRedirect:           true,
 		EndpointIndependentNAT: true,
 		Stack:                  "system",
 		ExcludeInterface:       []string{"wt0"},
@@ -301,6 +302,9 @@ func TestBuildTunInbound(t *testing.T) {
 	}
 	if !opts.AutoRoute {
 		t.Error("AutoRoute = false, want true")
+	}
+	if !opts.AutoRedirect {
+		t.Error("AutoRedirect = false, want true")
 	}
 	//nolint:staticcheck // EndpointIndependentNat is deprecated but we still need to set it.
 	if !opts.EndpointIndependentNat {
