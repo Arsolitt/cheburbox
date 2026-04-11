@@ -5,8 +5,10 @@ import (
 	"encoding/base64"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sagernet/sing-box/option"
+	"github.com/sagernet/sing/common/json/badoption"
 
 	"github.com/Arsolitt/cheburbox/config"
 )
@@ -30,22 +32,113 @@ func TestBuildDirectOutbound(t *testing.T) {
 func TestBuildURLTestOutbound(t *testing.T) {
 	t.Parallel()
 
+	tests := []struct {
+		want func(t *testing.T, result option.Outbound)
+		name string
+		out  config.Outbound
+	}{
+		{
+			name: "basic fields",
+			out: config.Outbound{
+				Type:      "urltest",
+				Tag:       "proxy",
+				URL:       "https://www.gstatic.com/generate_204",
+				Interval:  "3m",
+				Outbounds: []string{"vless-out", "hy2-out"},
+			},
+			want: func(t *testing.T, result option.Outbound) {
+				t.Helper()
+				if result.Tag != "proxy" {
+					t.Errorf("Tag = %q, want proxy", result.Tag)
+				}
+				if result.Type != "urltest" {
+					t.Errorf("Type = %q, want urltest", result.Type)
+				}
+			},
+		},
+		{
+			name: "with tolerance idle_timeout and interrupt",
+			out: config.Outbound{
+				Type:                      "urltest",
+				Tag:                       "proxy",
+				URL:                       "https://www.gstatic.com/generate_204",
+				Interval:                  "3m",
+				Tolerance:                 50,
+				IdleTimeout:               "5m",
+				InterruptExistConnections: true,
+				Outbounds:                 []string{"vless-out", "hy2-out"},
+			},
+			want: func(t *testing.T, result option.Outbound) {
+				t.Helper()
+				opts, ok := result.Options.(*option.URLTestOutboundOptions)
+				if !ok {
+					t.Fatalf("Options type = %T, want *URLTestOutboundOptions", result.Options)
+				}
+				if opts.Tolerance != 50 {
+					t.Errorf("Tolerance = %d, want 50", opts.Tolerance)
+				}
+				if opts.IdleTimeout != badoption.Duration(5*time.Minute) {
+					t.Errorf("IdleTimeout = %v, want %v", opts.IdleTimeout, 5*time.Minute)
+				}
+				if !opts.InterruptExistConnections {
+					t.Error("InterruptExistConnections = false, want true")
+				}
+			},
+		},
+		{
+			name: "empty idle_timeout is zero",
+			out: config.Outbound{
+				Type:      "urltest",
+				Tag:       "proxy",
+				URL:       "https://www.gstatic.com/generate_204",
+				Interval:  "3m",
+				Outbounds: []string{"vless-out"},
+			},
+			want: func(t *testing.T, result option.Outbound) {
+				t.Helper()
+				opts, ok := result.Options.(*option.URLTestOutboundOptions)
+				if !ok {
+					t.Fatalf("Options type = %T, want *URLTestOutboundOptions", result.Options)
+				}
+				if opts.Tolerance != 0 {
+					t.Errorf("Tolerance = %d, want 0", opts.Tolerance)
+				}
+				if opts.IdleTimeout != 0 {
+					t.Errorf("IdleTimeout = %v, want 0", opts.IdleTimeout)
+				}
+				if opts.InterruptExistConnections {
+					t.Error("InterruptExistConnections = true, want false")
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result, err := BuildOutbound(tc.out)
+			if err != nil {
+				t.Fatalf("BuildOutbound: %v", err)
+			}
+			tc.want(t, result)
+		})
+	}
+}
+
+func TestBuildURLTestOutboundInvalidIdleTimeout(t *testing.T) {
+	t.Parallel()
+
 	out := config.Outbound{
-		Type:      "urltest",
-		Tag:       "proxy",
-		URL:       "https://www.gstatic.com/generate_204",
-		Interval:  "3m",
-		Outbounds: []string{"vless-out", "hy2-out"},
+		Type:        "urltest",
+		Tag:         "proxy",
+		URL:         "https://www.gstatic.com/generate_204",
+		Interval:    "3m",
+		IdleTimeout: "not-a-duration",
+		Outbounds:   []string{"vless-out"},
 	}
-	result, err := BuildOutbound(out)
-	if err != nil {
-		t.Fatalf("BuildOutbound: %v", err)
-	}
-	if result.Tag != "proxy" {
-		t.Errorf("Tag = %q, want proxy", result.Tag)
-	}
-	if result.Type != "urltest" {
-		t.Errorf("Type = %q, want urltest", result.Type)
+	_, err := BuildOutbound(out)
+	if err == nil {
+		t.Fatal("expected error for invalid idle_timeout, got nil")
 	}
 }
 
