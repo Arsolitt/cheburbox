@@ -145,12 +145,13 @@ func TestCheckOutboundInboundRefsMissing(t *testing.T) {
 	}
 
 	errs := checkOutboundInboundRefs(configs)
-	if len(errs) != 1 {
-		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+	serverErrs := errs["server-a"]
+	if len(serverErrs) != 1 {
+		t.Fatalf("expected 1 error for server-a, got %d: %v", len(serverErrs), serverErrs)
 	}
 
-	if !strings.Contains(errs[0].Error(), "nonexistent") {
-		t.Errorf("error should mention missing inbound tag, got: %v", errs[0])
+	if !strings.Contains(serverErrs[0].Error(), "nonexistent") {
+		t.Errorf("error should mention missing inbound tag, got: %v", serverErrs[0])
 	}
 }
 

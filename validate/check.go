@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/include"
@@ -116,7 +115,7 @@ func runPhase1AndPhase2(configs map[string]config.Config, projectRoot string) ([
 }
 
 func runPhase1(configs map[string]config.Config) []ServerResult {
-	graph, err := generate.BuildGraph(configs)
+	_, err := generate.BuildGraph(configs)
 	if err != nil {
 		return []ServerResult{
 			{
@@ -125,8 +124,6 @@ func runPhase1(configs map[string]config.Config) []ServerResult {
 			},
 		}
 	}
-
-	_ = graph
 
 	crossServerErrs := checkOutboundInboundRefs(configs)
 
@@ -148,15 +145,7 @@ func runPhase1(configs map[string]config.Config) []ServerResult {
 
 		errs = append(errs, checkHysteria2ServerNameCollision(name, cfg)...)
 		errs = append(errs, checkOutboundGroupRefs(name, cfg)...)
-
-		for _, ce := range crossServerErrs {
-			if strings.Contains(ce.Error(), fmt.Sprintf("server %q ", name)) {
-				errs = append(errs, ce)
-			}
-		}
-		// The trailing space in "server %q " is critical: it matches the source server
-		// (which is followed by a space before "outbound"), not the target server
-		// (which is preceded by ", " in "on server %q,").
+		errs = append(errs, crossServerErrs[name]...)
 
 		results = append(results, ServerResult{
 			Server: name,
@@ -238,8 +227,9 @@ func checkHysteria2ServerNameCollision(server string, cfg config.Config) []error
 }
 
 // checkOutboundInboundRefs validates that outbound inbound references point to
-// existing inbound tags on the target server.
-func checkOutboundInboundRefs(configs map[string]config.Config) []error {
+// existing inbound tags on the target server. Returns a map from server name
+// to the list of errors attributed to that server.
+func checkOutboundInboundRefs(configs map[string]config.Config) map[string][]error {
 	serverTags := make(map[string]map[string]bool) // server -> set of inbound tags
 	for name, cfg := range configs {
 		tags := make(map[string]bool)
@@ -249,7 +239,7 @@ func checkOutboundInboundRefs(configs map[string]config.Config) []error {
 		serverTags[name] = tags
 	}
 
-	var errs []error
+	result := make(map[string][]error)
 
 	for name, cfg := range configs {
 		for _, out := range cfg.Outbounds {
@@ -261,9 +251,8 @@ func checkOutboundInboundRefs(configs map[string]config.Config) []error {
 				continue
 			}
 			if !tags[out.Inbound] {
-				errs = append(errs, fmt.Errorf(
-					"server %q outbound %q references inbound %q on server %q, but no such inbound exists",
-					name,
+				result[name] = append(result[name], fmt.Errorf(
+					"outbound %q references inbound %q on server %q, but no such inbound exists",
 					out.Tag,
 					out.Inbound,
 					out.Server,
@@ -272,7 +261,7 @@ func checkOutboundInboundRefs(configs map[string]config.Config) []error {
 		}
 	}
 
-	return errs
+	return result
 }
 
 // singBoxCheck reads a config.json file, parses it with registry-aware
