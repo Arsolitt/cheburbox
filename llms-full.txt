@@ -754,6 +754,8 @@ Servers with no inbounds (outbound-only) do not require `endpoint`.
 
 > `strategy`: `*string` — Optional. DNS resolution strategy (e.g., `"prefer_ipv4"`).
 
+> `cache_capacity`: `*uint32` — Optional. DNS cache capacity.
+
 > `rules`: `json.RawMessage` — Optional. Passed through verbatim to sing-box. See [DNS](/dns) for details.
 
 ```json
@@ -880,6 +882,12 @@ See [Outbounds](/outbounds) for the full outbound reference.
 > `url`: `string` — Optional. Health check URL for `urltest` outbounds.
 
 > `interval`: `string` — Optional. Health check interval for `urltest` outbounds (e.g., `"3m"`).
+
+> `idle_timeout`: `string` — Optional. Idle timeout for urltest outbounds as a Go duration string (e.g., `"5m"`).
+
+> `tolerance`: `uint16` — Optional. Tolerance in milliseconds for urltest outbound selection.
+
+> `interrupt_exist_connections`: `bool` — Optional. Whether to interrupt existing connections when switching urltest outbound.
 
 > `domain_resolver`: `string` — Optional. DNS resolver tag for domain resolution.
 
@@ -1140,7 +1148,6 @@ TUN supports multiple addresses, including mixed IPv4 and IPv6:
 | Invalid TUN address CIDR | `parse address "<value>": ...` |
 | Invalid TUN route_exclude_address CIDR | `parse route exclude address "<value>": ...` |
 
-See [Configuration Reference](/config-reference) for field-level validation rules (e.g., `listen_port` range).
 ---
 url: /outbounds
 ---
@@ -1171,6 +1178,12 @@ The `Outbound` struct contains all fields used across outbound types. Only a sub
 > `url`: string — Health check URL for urltest outbounds.
 
 > `interval`: string — Health check interval as a Go duration string (e.g. `"3m"`). Only used by urltest outbounds.
+
+> `idle_timeout`: string — Idle timeout for urltest outbounds as a Go duration string (e.g. `"5m"`). Only used by urltest outbounds.
+
+> `tolerance`: uint16 — Selection tolerance in milliseconds for urltest outbounds.
+
+> `interrupt_exist_connections`: bool — Whether to interrupt existing connections when switching urltest outbound.
 
 > `domain_resolver`: string — DNS server tag for resolving domain names on this outbound.
 
@@ -1267,11 +1280,19 @@ A urltest outbound automatically selects the best proxy from a list by testing l
   "tag": "proxy",
   "outbounds": ["vless-out", "hy2-out"],
   "url": "https://www.gstatic.com/generate_204",
-  "interval": "3m"
+  "interval": "3m",
+  "idle_timeout": "5m",
+  "tolerance": 50
 }
 ```
 
 The `interval` field accepts Go duration strings. Common values include `"30s"`, `"1m"`, `"3m"`, `"5m"`. If empty, the interval defaults to zero.
+
+The `idle_timeout` field uses the same Go duration format and controls how long an outbound can remain idle before being reconsidered. If empty, the idle timeout defaults to zero.
+
+The `tolerance` field specifies a selection tolerance in milliseconds. When set, the urltest outbound only switches to a new candidate if its latency is at least this many milliseconds lower than the current selection. This prevents frequent switching between proxies with similar latency.
+
+The `interrupt_exist_connections` field, when set to `true`, causes sing-box to close existing connections on the current outbound when switching to a different one. By default, existing connections are allowed to finish naturally.
 
 ## Selector
 
@@ -1305,9 +1326,11 @@ See [Config Reference](/config-reference) for the full schema placement.
 
 > `servers`: []DNSServer — List of DNS server entries. At least one is required.
 
-> `final`: string — Default DNS server tag used when no rule matches. Optional in config but recommended.
+> `final`: *string — Optional. Default DNS server tag used when no rule matches.
 
-> `strategy`: string — Domain resolution strategy. One of `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only`, `as_is`. Defaults to `as_is`.
+> `strategy`: *string — Optional. Domain resolution strategy. One of `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only`, `as_is`. Defaults to `as_is`.
+
+> `cache_capacity`: *uint32 — Optional. DNS cache capacity. Passed through to sing-box's DNSClientOptions.
 
 > `rules`: array — DNS routing rules (sing-box format). Parsed as `[]option.DNSRule`.
 
@@ -1422,6 +1445,7 @@ Returns fake IP addresses for domain queries, used with sing-box's FakeIP featur
     ],
     "final": "dns-remote",
     "strategy": "prefer_ipv4",
+    "cache_capacity": 1000,
     "rules": [
       {
         "rule_set": ["geosite-category-ru"],
