@@ -259,15 +259,16 @@ func TestBuildTunInbound(t *testing.T) {
 	t.Parallel()
 
 	in := config.Inbound{
-		Tag:                 "tun-in",
-		Type:                "tun",
-		InterfaceName:       "sing-box",
-		Address:             []string{"172.19.0.1/30"},
-		MTU:                 1500,
-		AutoRoute:           true,
-		Stack:               "system",
-		ExcludeInterface:    []string{"wt0"},
-		RouteExcludeAddress: []string{"10.0.0.0/8"},
+		Tag:                    "tun-in",
+		Type:                   "tun",
+		InterfaceName:          "sing-box",
+		Address:                []string{"172.19.0.1/30"},
+		MTU:                    1500,
+		AutoRoute:              true,
+		EndpointIndependentNAT: true,
+		Stack:                  "system",
+		ExcludeInterface:       []string{"wt0"},
+		RouteExcludeAddress:    []string{"10.0.0.0/8"},
 	}
 
 	inbound, err := BuildInbound(in, InboundCredentials{})
@@ -300,6 +301,10 @@ func TestBuildTunInbound(t *testing.T) {
 	}
 	if !opts.AutoRoute {
 		t.Error("AutoRoute = false, want true")
+	}
+	//nolint:staticcheck // EndpointIndependentNat is deprecated but we still need to set it.
+	if !opts.EndpointIndependentNat {
+		t.Error("EndpointIndependentNat = false, want true")
 	}
 	if opts.Stack != "system" {
 		t.Errorf("Stack = %q, want system", opts.Stack)

@@ -248,13 +248,14 @@ func buildTunInbound(in config.Inbound) (option.Inbound, error) {
 	}
 
 	opts := option.TunInboundOptions{
-		InterfaceName:       in.InterfaceName,
-		MTU:                 intToUint32(in.MTU),
-		Address:             badoption.Listable[netip.Prefix](addrs),
-		AutoRoute:           in.AutoRoute,
-		Stack:               in.Stack,
-		ExcludeInterface:    badoption.Listable[string](in.ExcludeInterface),
-		RouteExcludeAddress: badoption.Listable[netip.Prefix](routeExcludeAddrs),
+		InterfaceName:          in.InterfaceName,
+		MTU:                    intToUint32(in.MTU),
+		Address:                badoption.Listable[netip.Prefix](addrs),
+		AutoRoute:              in.AutoRoute,
+		EndpointIndependentNat: in.EndpointIndependentNAT,
+		Stack:                  in.Stack,
+		ExcludeInterface:       badoption.Listable[string](in.ExcludeInterface),
+		RouteExcludeAddress:    badoption.Listable[netip.Prefix](routeExcludeAddrs),
 	}
 
 	return option.Inbound{
