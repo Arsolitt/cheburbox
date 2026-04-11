@@ -1,0 +1,2298 @@
+---
+url: /overview
+---
+# Overview
+
+Cheburbox is a CLI tool written in Go that manages [sing-box](https://sing-box.sagernet.org/) configurations across multiple servers from a single project. It reads declarative `cheburbox.json` files from per-server directories, resolves cross-server dependencies via a directed acyclic graph (DAG), auto-generates cryptographic credentials, and produces complete `config.json` files ready for deployment.
+
+## The Problem It Solves
+
+Managing sing-box configurations across many servers manually involves repetitive boilerplate, error-prone credential management, and fragile cross-server user provisioning. When server A needs an outbound to server B, a user must be manually created on B with matching credentials. DNS, route rules, and rule-sets are often 90% identical across servers. There is no single source of truth for the infrastructure topology.
+
+Cheburbox solves this by providing a declarative configuration model with automatic credential generation, cross-server dependency resolution, and jsonnet support for DRY shared config parts.
+
+## Key Features
+
+- **Declarative per-server configuration.** Each server has a `cheburbox.json` (or `.cheburbox.jsonnet`) file describing its inbounds, outbounds, DNS, and routing. See [Project Structure](/project-structure) for the recommended layout.
+- **Automatic credential generation.** UUIDs, passwords, X25519 keys, and TLS certificates are generated automatically. See [Credentials](/credentials) for details.
+- **Cross-server dependency resolution.** Outbound references between servers form a DAG. Cheburbox topologically sorts them and automatically provisions users on target servers. See [Multi-Server Setup](/multi-server) for details.
+- **Credential persistence.** Existing credentials in `config.json` are preserved across re-generation. Only new users and missing credentials are created.
+- **Jsonnet support.** Use jsonnet libraries to share common configuration fragments (DNS servers, rule-sets, route rules) across servers without duplication.
+- **Auto-compiled rule-sets.** Custom JSON rule-sets are compiled to binary `.srs` format automatically during generation. See [Rule Sets](/rule-sets) for details.
+- **Atomic two-pass generation.** All servers are processed in memory first. Files are only written to disk after every server in the generation set succeeds. If any server fails, nothing is modified.
+
+## How It Works
+
+The generation pipeline follows these steps:
+
+```
+discover → load & parse → build DAG → topological sort → resolve & generate (in-memory) → batch write
+```
+
+1. **Discover.** Cheburbox scans direct child directories of the project root for `cheburbox.json` or `.cheburbox.jsonnet` files. Only one level of nesting is scanned.
+2. **Load & Parse.** If a server directory contains `.cheburbox.jsonnet`, it is evaluated as jsonnet first. The result is parsed into cheburbox Go structs. Existing `config.json` files are read for credential persistence.
+3. **Build DAG.** Each outbound with a non-empty `server` field creates a directed edge from the owning server to the target server. Self-references and unknown server references produce errors. Cycles are detected and reported.
+4. **Topological Sort.** Servers are ordered so that dependency targets are generated before dependents. A server with no outbound references to other servers has no dependencies and is generated first.
+5. **Resolve & Generate.** For each server in topological order, cheburbox creates cross-server users on target servers in memory, generates any missing credentials, and builds the final `config.json`. All processing happens entirely in memory.
+6. **Batch Write.** Only after all servers succeed, all generated files (`config.json`, certificates, `.srs` rule-sets) are written to disk. This ensures consistency — a partial failure leaves no files modified.
+
+## Server vs. Client
+
+Cheburbox does not use explicit server or client roles. A server is implicitly a "server" if it has inbounds. A "client" is simply a server that has outbounds referencing other servers and may have a TUN inbound. Cheburbox treats both identically throughout the pipeline.
+
+## The `cheburbox.json` Schema
+
+Each server directory contains a `cheburbox.json` file with the following top-level structure:
+
+```json
+{
+  "version": 1,
+  "endpoint": "198.51.100.1",
+
+  "dns": {
+    "servers": [
+      { "type": "local", "tag": "dns-local" },
+      { "type": "tls", "tag": "dns-remote", "server": "8.8.8.8", "server_port": 853, "detour": "direct" }
+    ],
+    "final": "dns-local"
+  },
+
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "in-vless",
+      "listen": "::",
+      "listen_port": 443,
+      "tls": {
+        "reality": {
+          "handshake": { "server": "www.microsoft.com", "server_port": 443 },
+          "short_id": ["abcd1234"]
+        }
+      },
+      "users": [{ "name": "phone" }]
+    }
+  ],
+
+  "outbounds": [
+    { "type": "direct", "tag": "direct" }
+  ],
+
+  "route": {
+    "final": "direct",
+    "auto_detect_interface": true
+  }
+}
+```
+
+### Top-Level Fields
+
+> `version`: int — Schema version. Must be `1`.
+
+> `endpoint`: string (optional) — The public IP address or hostname of this server. Required when the server has inbounds that other servers reference via outbounds.
+
+> `dns`: DNS — DNS server configuration. At least one DNS server entry is required. See [DNS](/dns) for details.
+
+> `log`: object (optional) — Logging configuration, passed through to sing-box as-is.
+
+> `inbounds`: []Inbound (optional) — List of inbound listeners. See [Inbounds](/inbounds) for details.
+
+> `outbounds`: []Outbound (optional) — List of outbound connections. Outbounds with a `server` field referencing another server directory name create cross-server dependencies. See [Outbounds](/outbounds) for details.
+
+> `route`: Route (optional) — Routing configuration including rule-sets and rules. See [Routing](/routing) for details.
+
+### Minimal Server Configuration
+
+The simplest possible server only needs a version and DNS configuration:
+
+```json
+{
+  "version": 1,
+  "dns": {
+    "servers": [
+      { "type": "local", "tag": "dns-local" }
+    ],
+    "final": "dns-local"
+  }
+}
+```
+
+::: tip
+Servers without inbounds do not need the `endpoint` field. Only servers that are referenced by outbounds from other servers need to declare their public endpoint.
+:::
+
+## Two Sets of Structs
+
+Internally, cheburbox uses two distinct sets of Go structs:
+
+- **Cheburbox structs** (defined in `config/cheburbox.go`) — the simplified, user-facing schema for `cheburbox.json` input. These have no sing-box dependency and are designed for straightforward JSON unmarshaling.
+- **Sing-box option structs** (from `github.com/sagernet/sing-box/option`) — used only for producing the final `config.json` output. These require context-aware unmarshaling with protocol registries.
+
+A conversion layer translates cheburbox structs into sing-box option structs during generation. This separation exists because sing-box option structs use `context.Context`-aware JSON unmarshaling with protocol registries, making them unsuitable for direct use as input types.
+
+## Edge Cases
+
+- **No servers found.** If no directories containing `cheburbox.json` are discovered, cheburbox outputs `no servers found in project` and exits cleanly with no error.
+- **Circular dependencies.** If server A references server B and server B references server A (directly or transitively), cheburbox detects the cycle during DAG construction and reports an error.
+- **Missing config.json.** Servers that do not yet have an existing `config.json` skip credential persistence gracefully — all credentials are generated fresh.
+- **Validation.** After generation, cheburbox can validate configurations using the `validate` command. See [Validation](/validation) for details.
+
+## What Cheburbox Does Not Do
+
+Cheburbox is a local generation tool only. It does not deploy configurations to remote servers, manage the sing-box service lifecycle, or handle certificate issuance via ACME. Deployment is handled separately (for example, via shell scripts or configuration management tools).
+
+## Next Steps
+
+- See [Installation](/installation) to install cheburbox.
+- See [Quick Start](/quick-start) for a guided walkthrough of creating your first project.
+- See [Project Structure](/project-structure) for the recommended directory layout.
+- See [CLI Reference](/cli-reference) for all available commands and flags.
+---
+url: /installation
+---
+# Installation
+
+Cheburbox is a Go CLI tool. You can install it by building from source or using `go install`.
+
+## Prerequisites
+
+- **Go 1.26.1 or later** — cheburbox requires Go 1.26.1 as specified in its `go.mod` file.
+- **Git** — for cloning the repository if building from source.
+
+## Install with go install
+
+The simplest way to install cheburbox is via `go install`. This builds the binary from the source repository and places it in your `GOPATH/bin` directory (typically `$HOME/go/bin`).
+
+```shell
+go install github.com/Arsolitt/cheburbox/cmd/cheburbox@latest
+```
+
+Make sure `$GOPATH/bin` (or `$HOME/go/bin`) is in your `PATH` so the `cheburbox` command is available:
+
+```shell
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+To install a specific version, replace `@latest` with a tag or commit hash:
+
+```shell
+go install github.com/Arsolitt/cheburbox/cmd/cheburbox@v1.0.0
+```
+
+::: tip
+Using `@latest` always installs the most recent commit on the default branch. Pin a specific tag for reproducible builds.
+:::
+
+## Build from Source
+
+Clone the repository and build locally:
+
+```shell
+git clone https://github.com/Arsolitt/cheburbox.git
+cd cheburbox
+go build -o build/cheburbox ./cmd/cheburbox/
+```
+
+The resulting binary is placed at `build/cheburbox`. Copy it anywhere in your `PATH`:
+
+```shell
+cp build/cheburbox /usr/local/bin/
+```
+
+## Verify Installation
+
+After installation, confirm that cheburbox is working:
+
+```shell
+cheburbox --help
+```
+
+You should see the root command help output showing the available subcommands: `generate`, `rule-set`, and `validate`.
+
+## Dependencies
+
+Cheburbox has the following direct dependencies:
+
+| Dependency | Purpose |
+|---|---|
+| `github.com/spf13/cobra` | CLI framework for commands and flags. |
+| `github.com/google/go-jsonnet` | Jsonnet evaluation for shared configuration libraries. |
+| `github.com/sagernet/sing-box` | Sing-box core library for option structs and rule-set compilation. |
+| `github.com/gofrs/uuid/v5` | UUID v5 generation for user credentials. |
+
+All dependencies are fetched automatically by the Go toolchain when you run `go build` or `go install`. No manual dependency management is needed.
+
+## Linting (Development)
+
+If you are contributing to cheburbox or modifying the source, the project uses [golangci-lint](https://golangci-lint.run/) v2 for static analysis:
+
+```shell
+golangci-lint run
+```
+
+To auto-fix formatting and lint issues where possible:
+
+```shell
+golangci-lint run --fix
+```
+
+The linter configuration is in `.golangci.yaml` at the project root and enforces strict rules including line length, import grouping, error wrapping, and exhaustive switches.
+
+## Running Tests
+
+To run the full test suite:
+
+```shell
+go test ./...
+```
+
+To run a specific test:
+
+```shell
+go test -run TestFunctionName ./path/to/package
+```
+
+To run tests with verbose output:
+
+```shell
+go test -v -run TestFunctionName ./path/to/package
+```
+
+## Next Steps
+
+- See [Quick Start](/quick-start) to create your first cheburbox project.
+- See [CLI Reference](/cli-reference) for all available commands and flags.
+---
+url: /quick-start
+---
+# Quick Start
+
+This guide walks you through creating a minimal cheburbox project and generating your first sing-box configuration. You will create a project with a single server, write a `cheburbox.json` config, and run the generate command to produce the output files.
+
+See [Project Structure](/project-structure) for a deeper explanation of how cheburbox organizes files on disk.
+
+## Prerequisites
+
+Make sure cheburbox is installed. See [Installation](/installation) for instructions.
+
+## Step 1 — Create the Project Directory
+
+Pick a directory to serve as your project root. All server directories will live one level deep beneath it.
+
+```shell
+mkdir my-project
+cd my-project
+```
+
+::: tip
+The project root is where cheburbox looks for servers. If you run `cheburbox generate` without `--project`, the current working directory is used as the project root.
+:::
+
+## Step 2 — Create a Server Directory
+
+Each server is a subdirectory of the project root. Create one now.
+
+```shell
+mkdir server-a
+```
+
+## Step 3 — Write cheburbox.json
+
+The minimal required fields are `version` (must be `1`) and `dns` with at least one DNS server. Create `server-a/cheburbox.json` with this content:
+
+```json
+{
+  "version": 1,
+  "dns": {
+    "servers": [
+      {
+        "type": "local",
+        "tag": "dns-local"
+      }
+    ],
+    "final": "dns-local"
+  }
+}
+```
+
+Here is what each field does:
+
+> `version`: `int` — Schema version. Must be `1`. Any other value or a missing field is rejected.
+
+> `dns.servers`: `[]DNSServer` — List of DNS servers. At least one is required. Each entry needs `type` and `tag`.
+
+> `dns.final`: `string` — Default DNS server tag used when no rule matches. Optional but recommended.
+
+::: warning
+If you omit `version` or set it to `0`, cheburbox will refuse to load the config with an error like `missing or zero version field`.
+:::
+
+## Step 4 — Generate the Configuration
+
+Run cheburbox generate from the project root. This discovers all server directories, reads their configs, and writes output files.
+
+```shell
+cheburbox generate
+```
+
+You should see output like:
+
+```
+Generated 1 files for server server-a
+```
+
+The file `server-a/config.json` now contains a complete sing-box configuration.
+
+## Step 5 — Add Inbounds and Outbounds
+
+A server with only DNS config produces a minimal output. To get a working proxy server, add inbounds and outbounds. Update `server-a/cheburbox.json`:
+
+```json
+{
+  "version": 1,
+  "endpoint": "1.2.3.4",
+  "dns": {
+    "servers": [
+      {
+        "type": "local",
+        "tag": "dns-local"
+      }
+    ],
+    "final": "dns-local"
+  },
+  "inbounds": [
+    {
+      "tag": "vless-in",
+      "type": "vless",
+      "listen_port": 443,
+      "users": [
+        {
+          "name": "alice"
+        }
+      ]
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ]
+}
+```
+
+Key additions:
+
+> `endpoint`: `string` — The public IP or hostname of this server. **Required** whenever `inbounds` is non-empty. Omit it for outbound-only servers.
+
+> `inbounds`: `[]Inbound` — List of inbound listeners. Each needs `tag`, `type`, and `listen_port`. The `users` field declares named users whose credentials cheburbox generates automatically.
+
+> `outbounds`: `[]Outbound` — List of outbound connections. Each needs `type` and `tag`.
+
+::: warning
+If you define any inbound but forget `endpoint`, validation will fail with: `endpoint is required when inbounds are defined`.
+:::
+
+Run generate again:
+
+```shell
+cheburbox generate
+```
+
+Now `server-a/config.json` contains a full sing-box config with the VLESS inbound, generated UUID credentials for user "alice", and the direct outbound.
+
+## Step 6 — Preview Without Writing Files
+
+Use `--dry-run` to inspect the generated output without writing anything to disk. Output is a JSON object with base64-encoded file contents.
+
+```shell
+cheburbox generate --dry-run
+```
+
+## Step 7 — Generate a Single Server
+
+In a project with multiple servers, use `--server` to generate only one:
+
+```shell
+cheburbox generate --server server-a
+```
+
+## Understanding listen_port
+
+The `listen_port` field on inbounds accepts values from `0` to `65535`. A value of `0` is valid and useful for certain inbound types like `tun`, where the port is not applicable.
+
+```json
+{
+  "tag": "tun-in",
+  "type": "tun",
+  "listen_port": 0,
+  "interface_name": "sing-box",
+  "address": ["172.19.0.1/30"],
+  "auto_route": true
+}
+```
+
+## Common Mistakes
+
+- **Missing `version` field** — Always include `"version": 1` at the top level.
+- **Missing `dns.servers`** — The DNS section must have at least one server entry.
+- **`endpoint` without inbounds** — The `endpoint` field is only required when `inbounds` is non-empty. An outbound-only server does not need it.
+- **Empty project root** — If no subdirectories contain `cheburbox.json` or `.cheburbox.jsonnet`, cheburbox prints `no servers found in project` and exits successfully.
+
+## Next Steps
+
+- See [Config Reference](/config-reference) for the full schema documentation.
+- See [Project Structure](/project-structure) to learn about multi-server layouts, the `lib/` directory, and Jsonnet support.
+- See [CLI Reference](/cli-reference) for all available commands and flags.
+---
+url: /project-structure
+---
+# Project Structure
+
+Cheburbox uses a convention-based directory layout to manage sing-box configurations across multiple servers. This page explains how project roots, server directories, and generated files are organized on disk.
+
+See [Overview](/overview) for a high-level introduction to cheburbox concepts.
+
+## Project Root
+
+The project root is the top-level directory that contains all server directories. When you run `cheburbox generate` without `--project`, the current working directory is used as the project root.
+
+```shell
+cheburbox generate --project /path/to/my-project
+```
+
+All server directories must be **direct children** of the project root. Cheburbox scans only one level deep — nested subdirectories inside a server directory are not discovered as separate servers.
+
+## Server Discovery
+
+Cheburbox discovers servers by scanning the project root for subdirectories that contain a configuration file. A directory is recognized as a server if it contains either:
+
+- `cheburbox.json` — static JSON configuration
+- `.cheburbox.jsonnet` — Jsonnet-based configuration (takes precedence when both exist)
+
+Discovery is handled by the `Discover` function in `config/load.go`. It reads the project root directory, checks each child directory for a config file, and returns the sorted list of directory names.
+
+::: tip
+Server names are the directory names themselves. Use descriptive names like `proxy-eu`, `gateway-us`, or `dns-resolver`.
+:::
+
+### Precedence
+
+If a directory contains both `cheburbox.json` and `.cheburbox.jsonnet`, only the `.cheburbox.jsonnet` file is used. The JSON file is ignored. This is implemented in `LoadServerWithJsonnet` in `config/load.go`.
+
+### Silent Skipping
+
+Directories without either config file are skipped silently. No error or warning is produced. This lets you keep non-server directories (like documentation or scripts) alongside your server configs without interference.
+
+## Minimal Project Layout
+
+A project with a single server looks like this:
+
+```
+my-project/
+  server-a/
+    cheburbox.json
+```
+
+After running `cheburbox generate`:
+
+```
+my-project/
+  server-a/
+    cheburbox.json
+    config.json         (generated)
+```
+
+## Multi-Server Project Layout
+
+A realistic project with multiple servers:
+
+```
+my-project/
+  lib/
+    dns.jsonnet
+    route.jsonnet
+  proxy-eu/
+    .cheburbox.jsonnet
+    config.json         (generated)
+    certs/
+      example.com.crt   (generated)
+      example.com.key   (generated)
+    rule-set/
+      extension.srs     (generated)
+    extension.json      (source)
+  gateway-us/
+    cheburbox.json
+    config.json         (generated)
+```
+
+## The lib/ Directory
+
+The `lib/` directory is the default Jsonnet library search path. Place shared Jsonnet modules here so that multiple server configs can import them.
+
+```jsonnet
+// proxy-eu/.cheburbox.jsonnet
+local dns = import "lib/dns.jsonnet";
+local route = import "lib/route.jsonnet";
+
+{
+  version: 1,
+  endpoint: "1.2.3.4",
+  dns: dns.config(),
+  route: route.config(),
+  // ...
+}
+```
+
+The jpath is resolved relative to the project root by default. You can override it with `--jpath`:
+
+```shell
+cheburbox generate --jpath /absolute/path/to/libs
+```
+
+Or a relative path (resolved from project root):
+
+```shell
+cheburbox generate --jpath shared
+```
+
+The `resolveJPath` function in `cmd/cheburbox/main.go` handles this: if the path is absolute it is used as-is, otherwise it is joined with the project root. The default value is `lib`.
+
+See [CLI Reference](/cli-reference) for the full `--jpath` documentation.
+
+## Generated Files
+
+When cheburbox generates a server, it produces output files relative to the server directory. The exact set of files depends on the server configuration.
+
+### config.json
+
+Always generated. Contains the complete sing-box configuration for the server. This file is written to the server directory root.
+
+### certs/
+
+Generated when an inbound uses TLS with a self-signed certificate (e.g., hysteria2 with `tls.server_name`). Contains:
+
+- `<server_name>.crt` — TLS certificate
+- `<server_name>.key` — TLS private key
+
+### rule-set/
+
+Generated when the server defines `custom_rule_sets` in the `route` section. Each rule-set is compiled from a source JSON file into binary `.srs` format:
+
+- `<name>.srs` — compiled binary rule-set
+
+Source JSON files for rule-sets live in the server directory itself (not inside `rule-set/`). See [Rule Sets](/rule-sets) for details on authoring custom rule-sets.
+
+### Reserved Filenames
+
+The rule-set discovery logic in `ruleset/discover.go` skips these filenames to avoid treating config files as rule-set sources:
+
+- `cheburbox.json`
+- `config.json`
+
+This means you can safely have both config and rule-set source files in the same server directory.
+
+## File Lifecycle
+
+| File | Type | Description |
+|---|---|---|
+| `cheburbox.json` | Source | Static server configuration you write and edit. |
+| `.cheburbox.jsonnet` | Source | Jsonnet server configuration (takes precedence over JSON). |
+| `config.json` | Generated | sing-box config output. Overwritten on each generate run. |
+| `certs/*.crt` | Generated | TLS certificates. Overwritten on each generate run. |
+| `certs/*.key` | Generated | TLS private keys. Overwritten on each generate run. |
+| `rule-set/*.srs` | Generated | Compiled binary rule-sets. Overwritten on each generate run. |
+| `*.json` (other) | Source | Rule-set source files read by the compiler. |
+| `lib/*.jsonnet` | Source | Shared Jsonnet libraries imported by server configs. |
+
+::: warning
+Generated files are overwritten every time you run `cheburbox generate`. Never edit `config.json`, certificates, or `.srs` files manually — your changes will be lost on the next run.
+:::
+
+## Complete Working Example
+
+Here is a full project with a Jsonnet-based server, shared libraries, and custom rule-sets.
+
+**lib/dns.jsonnet:**
+
+```jsonnet
+{
+  config(): {
+    servers: [
+      { type: "local", tag: "dns-local" },
+      { type: "tls", tag: "dns-remote", server: "8.8.8.8", server_port: 853, detour: "direct" },
+    ],
+    final: "dns-remote",
+    strategy: "prefer_ipv4",
+  },
+}
+```
+
+**proxy-eu/extension.json** (rule-set source):
+
+```json
+{
+  "version": 2,
+  "rules": [
+    {
+      "domain_suffix": [
+        ".example.com"
+      ],
+      "outbound": "direct"
+    }
+  ]
+}
+```
+
+**proxy-eu/.cheburbox.jsonnet:**
+
+```jsonnet
+local dns = import "lib/dns.jsonnet";
+
+{
+  version: 1,
+  endpoint: "138.124.181.194",
+  dns: dns.config(),
+  inbounds: [
+    {
+      tag: "vless-in",
+      type: "vless",
+      listen_port: 443,
+      tls: {
+        reality: {
+          handshake: {
+            server: "spain.info",
+            server_port: 443,
+          },
+        },
+      },
+      users: [
+        { name: "desktop" },
+        { name: "laptop" },
+      ],
+    },
+  ],
+  outbounds: [
+    { type: "direct", tag: "direct" },
+  ],
+  route: {
+    final: "direct",
+    auto_detect_interface: true,
+    custom_rule_sets: ["extension"],
+  },
+}
+```
+
+After running `cheburbox generate`:
+
+```
+my-project/
+  lib/
+    dns.jsonnet
+  proxy-eu/
+    .cheburbox.jsonnet
+    extension.json
+    config.json
+    rule-set/
+      extension.srs
+```
+
+## Edge Cases
+
+- **Non-existent project root** — The `Discover` function returns an error if the project root directory does not exist or is not readable.
+- **No config files found** — If the project root exists but no subdirectories contain a config file, cheburbox prints `no servers found in project` and exits with code 0.
+- **Both config formats present** — A directory with both `cheburbox.json` and `.cheburbox.jsonnet` is treated as a single server using only the `.cheburbox.jsonnet` file.
+- **Deeply nested directories** — Directories more than one level below the project root are never discovered. For example, `server-a/nested/` is ignored even if it contains a config file.
+
+## Next Steps
+
+- See [Quick Start](/quick-start) for a step-by-step tutorial to create your first project.
+- See [Rule Sets](/rule-sets) for details on authoring and compiling custom rule-sets.
+- See [CLI Reference](/cli-reference) for all commands and flags that operate on the project structure.
+---
+url: /config-reference
+---
+# Configuration Reference
+
+Complete field-by-field reference for `cheburbox.json`. See [Quick Start](/quick-start) for a minimal working example.
+
+## Top-Level Config
+
+> `version`: `int` — Required. Must be `1`. Values of `0` or any other number are rejected.
+
+> `endpoint`: `string` — Required when `inbounds` is non-empty. The public IP address or hostname of this server, used to construct outbound connection strings in generated client configs.
+
+> `dns`: `DNS` — Required. See [DNS](#dns) section below.
+
+> `log`: `json.RawMessage` — Optional. Passed through verbatim to sing-box. Common keys include `level` and `timestamp`.
+
+> `inbounds`: `[]Inbound` — Optional. List of inbound listeners. See [Inbounds](/inbounds) for details.
+
+> `outbounds`: `[]Outbound` — Optional. List of outbound connections. See [Outbounds](/outbounds) for details.
+
+> `route`: `*Route` — Optional. Routing rules. See [Routing](/routing) for details.
+
+```json
+{
+  "version": 1,
+  "endpoint": "138.124.181.194",
+  "dns": {
+    "servers": [{"type": "local", "tag": "dns-local"}],
+    "final": "dns-local"
+  }
+}
+```
+
+::: tip
+Servers with no inbounds (outbound-only) do not require `endpoint`.
+:::
+
+## DNS
+
+> `servers`: `[]DNSServer` — Required. At least one server must be defined.
+
+> `final`: `*string` — Optional. Tag of the default DNS server for fallback resolution.
+
+> `strategy`: `*string` — Optional. DNS resolution strategy (e.g., `"prefer_ipv4"`).
+
+> `rules`: `json.RawMessage` — Optional. Passed through verbatim to sing-box. See [DNS](/dns) for details.
+
+```json
+{
+  "dns": {
+    "servers": [
+      {"type": "local", "tag": "dns-local"},
+      {"type": "tls", "tag": "dns-remote", "server": "8.8.8.8", "server_port": 853, "detour": "direct"}
+    ],
+    "final": "dns-remote",
+    "strategy": "prefer_ipv4"
+  }
+}
+```
+
+### DNSServer
+
+> `type`: `string` — Required. DNS server type (e.g., `"local"`, `"tls"`).
+
+> `tag`: `string` — Required. Unique identifier referenced by DNS rules and the `final` field.
+
+> `server`: `string` — Optional. DNS server address (e.g., `"8.8.8.8"`).
+
+> `detour`: `string` — Optional. Outbound tag to route DNS queries through.
+
+> `server_port`: `int` — Optional. DNS server port (e.g., `853` for DoT).
+
+## Inbound
+
+See [Inbounds](/inbounds) for the full inbound reference. Top-level inbound fields:
+
+> `type`: `string` — Required. One of `"vless"`, `"hysteria2"`, or `"tun"`.
+
+> `tag`: `string` — Required. Unique identifier for this inbound.
+
+> `listen_port`: `int` — Optional. Port to listen on. Range: `0`–`65535`. Value `0` is valid (used for TUN).
+
+> `listen`: `string` — Optional. Listen address (e.g., `"::"` for all IPv6 interfaces).
+
+> `users`: `[]InboundUser` — Optional. List of user declarations.
+
+> `tls`: `*InboundTLS` — Optional. TLS configuration.
+
+> `obfs`: `*ObfsConfig` — Optional. Obfuscation configuration (Hysteria2 only).
+
+> `masquerade`: `*MasqueradeConfig` — Optional. HTTP masquerade configuration (Hysteria2 only).
+
+> `stack`: `string` — Optional. Network stack (TUN only, e.g., `"system"`).
+
+> `interface_name`: `string` — Optional. TUN interface name.
+
+> `address`: `[]string` — Optional. CIDR addresses for the TUN interface (e.g., `"172.19.0.1/30"`).
+
+> `exclude_interface`: `[]string` — Optional. Interfaces to exclude from TUN routing.
+
+> `route_exclude_address`: `[]string` — Optional. CIDR prefixes excluded from TUN auto-route.
+
+> `down_mbps`: `int` — Optional. Download bandwidth limit in Mbps (Hysteria2 only).
+
+> `up_mbps`: `int` — Optional. Upload bandwidth limit in Mbps (Hysteria2 only).
+
+> `mtu`: `int` — Optional. MTU value for TUN interface.
+
+> `auto_route`: `bool` — Optional. Enable automatic routing for TUN interface.
+
+### InboundUser
+
+> `name`: `string` — Required. User name (used as identifier in generated configs).
+
+> `flow`: `string` — Optional. VLESS flow control string (e.g., `"xtls-rprx-vision"`). Only applies to VLESS inbounds.
+
+### InboundTLS
+
+> `server_name`: `string` — Optional. TLS server name / SNI. For Hysteria2, binds to certificate SAN and determines cert file paths.
+
+> `alpn`: `[]string` — Optional. TLS ALPN values (e.g., `["h3"]`).
+
+> `reality`: `*RealityConfig` — Optional. Reality TLS configuration (VLESS only).
+
+### RealityConfig
+
+> `handshake`: `*RealityHandshake` — Required when `reality` is set. Handshake server details.
+
+> `short_id`: `[]string` — Optional. Reality short IDs. Auto-generated (base64-encoded 8 bytes) if not provided.
+
+### RealityHandshake
+
+> `server`: `string` — Required. Handshake server hostname or IP.
+
+> `server_port`: `int` — Required. Handshake server port.
+
+### ObfsConfig
+
+> `type`: `string` — Required. Obfuscation type (e.g., `"salamander"`).
+
+> `password`: `string` — Optional. Obfuscation password. Auto-generated (24-byte base64) if empty.
+
+### MasqueradeConfig
+
+> `type`: `string` — Required. Must be `"proxy"`.
+
+> `url`: `string` — Optional. Proxy target URL for masquerade.
+
+> `rewrite_host`: `bool` — Optional. Whether to rewrite the Host header to the proxy URL host.
+
+## Outbound
+
+See [Outbounds](/outbounds) for the full outbound reference.
+
+> `type`: `string` — Required. One of `"direct"`, `"vless"`, `"hysteria2"`, `"urltest"`, or `"selector"`.
+
+> `tag`: `string` — Required. Unique identifier for this outbound.
+
+> `server`: `string` — Optional. Target server directory name (for cross-server outbounds).
+
+> `inbound`: `string` — Optional. Target inbound tag on the remote server (for cross-server outbounds).
+
+> `user`: `string` — Optional. Target user name on the remote server.
+
+> `flow`: `string` — Optional. VLESS flow control string for VLESS outbounds.
+
+> `endpoint`: `string` — Optional. Override endpoint address for this outbound.
+
+> `url`: `string` — Optional. Health check URL for `urltest` outbounds.
+
+> `interval`: `string` — Optional. Health check interval for `urltest` outbounds (e.g., `"3m"`).
+
+> `domain_resolver`: `string` — Optional. DNS resolver tag for domain resolution.
+
+> `outbounds`: `[]string` — Optional. List of outbound tags to test or select from (for `urltest` and `selector` types).
+
+## Route
+
+See [Routing](/routing) for the full routing reference.
+
+> `final`: `string` — Optional. Default outbound tag for unmatched traffic.
+
+> `default_domain_resolver`: `string` — Optional. Default DNS resolver for domain lookups.
+
+> `rule_sets`: `json.RawMessage` — Optional. Rule set definitions passed through to sing-box.
+
+> `custom_rule_sets`: `[]string` — Optional. List of custom rule set names.
+
+> `rules`: `json.RawMessage` — Optional. Routing rules passed through to sing-box.
+
+> `auto_detect_interface`: `bool` — Optional. Automatically detect the default network interface.
+
+## Validation Rules
+
+The following constraints are enforced by the `Validate` function at generation time:
+
+| Rule | Error message |
+|---|---|
+| `version` must equal `1` | `unsupported version N (want 1)` |
+| `dns.servers` must have at least one entry | `dns section is required: at least one dns server must be defined` |
+| `endpoint` is required when `inbounds` is non-empty | `endpoint is required when inbounds are defined` |
+| `listen_port` must be `0`–`65535` | `inbound "tag": listen_port N is out of range (0-65535)` |
+
+::: warning
+A `version` of `0` is treated as missing and rejected with `"missing or zero version field"`.
+:::
+---
+url: /inbounds
+---
+# Inbounds
+
+Inbounds define how the sing-box instance accepts connections. Cheburbox supports three inbound types: VLESS, Hysteria2, and TUN. See [Configuration Reference](/config-reference) for the full field listing.
+
+## Overview
+
+Each inbound is declared in the `inbounds` array of `cheburbox.json` with a `type` field that determines which other fields are relevant:
+
+| Type | Protocol | Typical use |
+|---|---|---|
+| `vless` | VLESS with optional Reality TLS | Proxy connections from clients |
+| `hysteria2` | QUIC-based with optional TLS, obfs, masq | High-performance proxy |
+| `tun` | System TUN interface | Transparent proxy / VPN mode |
+
+## VLESS
+
+VLESS inbounds accept proxy connections with optional Reality TLS for traffic camouflage.
+
+### Basic Configuration
+
+```json
+{
+  "tag": "vless-in",
+  "type": "vless",
+  "listen_port": 443,
+  "listen": "::",
+  "users": [
+    {"name": "alice"},
+    {"name": "bob"}
+  ]
+}
+```
+
+### Reality TLS
+
+Add the `tls` block with a `reality` section to enable Reality. The `handshake.server` and `handshake.server_port` are required when Reality is configured. Short IDs are auto-generated (base64-encoded 8 bytes) if not provided.
+
+```json
+{
+  "tag": "vless-in",
+  "type": "vless",
+  "listen_port": 443,
+  "listen": "::",
+  "tls": {
+    "reality": {
+      "handshake": {
+        "server": "example.com",
+        "server_port": 443
+      },
+      "short_id": ["abcd1234"]
+    }
+  },
+  "users": [
+    {"name": "alice"},
+    {"name": "bob", "flow": "xtls-rprx-vision"}
+  ]
+}
+```
+
+### User Credentials
+
+VLESS users receive auto-generated UUIDv4 credentials. The default flow for auto-generated users is `"xtls-rprx-vision"`. You can set a per-user `flow` in the `users` array to override the default.
+
+```json
+{"name": "desktop", "flow": "xtls-rprx-vision"},
+{"name": "phone"}
+```
+
+Users are sorted alphabetically by name in the generated sing-box config. See [Credentials](/credentials) for details on credential generation and persistence.
+
+### Without TLS
+
+Omitting the `tls` block entirely produces a plain VLESS inbound with no TLS section in the output.
+
+::: tip
+A VLESS inbound without TLS and without users is valid — useful for testing or local-only setups.
+:::
+
+## Hysteria2
+
+Hysteria2 inbounds use QUIC for high-performance proxy connections with optional TLS, obfuscation, and HTTP masquerade.
+
+### Full Configuration
+
+```json
+{
+  "tag": "hy2-in",
+  "type": "hysteria2",
+  "listen_port": 443,
+  "up_mbps": 1000,
+  "down_mbps": 1000,
+  "tls": {
+    "server_name": "hy.example.com",
+    "alpn": ["h3"]
+  },
+  "obfs": {
+    "type": "salamander"
+  },
+  "masquerade": {
+    "type": "proxy",
+    "url": "https://hy.example.com",
+    "rewrite_host": true
+  },
+  "users": [
+    {"name": "charlie"}
+  ]
+}
+```
+
+### TLS Certificates
+
+When `tls.server_name` is set, cheburbox auto-generates a self-signed Ed25519 certificate with the server name in the DNS SAN. Certificate files are written to:
+
+- `certs/<server_name>.crt`
+- `certs/<server_name>.key`
+
+The certificate is valid for 365 days. If a certificate already exists with the correct SAN, it is reused.
+
+::: tip
+You can specify `alpn` values (e.g., `["h3"]`) in the TLS block to negotiate application-layer protocols.
+:::
+
+### Obfuscation
+
+Add the `obfs` block to enable salamander obfuscation. The `type` field must be `"salamander"`. If `password` is omitted, a 24-byte base64 password is auto-generated.
+
+```json
+{
+  "obfs": {
+    "type": "salamander"
+  }
+}
+```
+
+### Masquerade
+
+Add the `masquerade` block to disguise Hysteria2 traffic as normal HTTPS. The `type` field must be `"proxy"`.
+
+```json
+{
+  "masquerade": {
+    "type": "proxy",
+    "url": "https://hy.example.com",
+    "rewrite_host": true
+  }
+}
+```
+
+> `url`: The target URL to proxy masquerade requests to.
+> `rewrite_host`: When `true`, rewrites the Host header to match the proxy URL host.
+
+### Bandwidth Limits
+
+Use `up_mbps` and `down_mbps` to set upload and download bandwidth limits in Mbps.
+
+### User Credentials
+
+Hysteria2 users receive auto-generated 24-byte base64 passwords. See [Credentials](/credentials) for details.
+
+### Minimal Configuration
+
+A Hysteria2 inbound with no TLS, no obfuscation, and no masquerade is valid:
+
+```json
+{
+  "tag": "hy2-min",
+  "type": "hysteria2",
+  "listen_port": 8443
+}
+```
+
+## TUN
+
+TUN inbounds create a virtual network interface for transparent proxying.
+
+### Configuration
+
+```json
+{
+  "tag": "tun-in",
+  "type": "tun",
+  "interface_name": "sing-box",
+  "address": ["172.19.0.1/30", "fd00::1/126"],
+  "mtu": 1500,
+  "auto_route": true,
+  "stack": "system",
+  "exclude_interface": ["wt0"],
+  "route_exclude_address": ["10.0.0.0/8"]
+}
+```
+
+> `interface_name`: Name for the TUN interface (e.g., `"sing-box"`).
+> `address`: CIDR prefixes for the TUN interface. Supports both IPv4 and IPv6. Multiple addresses are allowed.
+> `mtu`: MTU value for the interface.
+> `auto_route`: When `true`, automatically adds routes for the TUN interface.
+> `stack`: Network stack to use (e.g., `"system"`).
+> `exclude_interface`: Interfaces to exclude from automatic routing (e.g., `["wt0", "awg0"]`).
+> `route_exclude_address`: CIDR prefixes excluded from auto-route (e.g., `["10.0.0.0/8"]`).
+
+::: warning
+Both `address` and `route_exclude_address` entries must be valid CIDR notation. Invalid values like `"not-a-cidr"` or `"999.999.999.999/8"` produce a parse error at generation time.
+:::
+
+### Multiple Addresses
+
+TUN supports multiple addresses, including mixed IPv4 and IPv6:
+
+```json
+{
+  "address": ["172.19.0.1/30", "fd00::1/126"]
+}
+```
+
+## Error Handling
+
+| Scenario | Error |
+|---|---|
+| Unknown inbound type | `unknown inbound type: <type>` |
+| Users declared but credentials missing | `missing credentials for declared users` |
+| Invalid TUN address CIDR | `parse address "<value>": ...` |
+| Invalid TUN route_exclude_address CIDR | `parse route exclude address "<value>": ...` |
+
+See [Configuration Reference](/config-reference) for field-level validation rules (e.g., `listen_port` range).
+---
+url: /outbounds
+---
+# Outbounds
+
+Outbounds define how traffic leaves the server. Cheburbox supports five outbound types: direct connections, cross-server VLESS and Hysteria2 tunnels, and automatic or manual proxy selection.
+
+Outbounds are declared as an array in the top-level `outbounds` field of `cheburbox.json`. See [Config Reference](/config-reference) for the full schema.
+
+## Outbound Fields
+
+The `Outbound` struct contains all fields used across outbound types. Only a subset applies to each type.
+
+> `type`: string — Outbound type. One of `direct`, `vless`, `hysteria2`, `urltest`, `selector`.
+
+> `tag`: string — Unique identifier for the outbound.
+
+> `server`: string — Target server directory name (cross-server outbounds only).
+
+> `inbound`: string — Target inbound tag on the remote server (cross-server outbounds only).
+
+> `user`: string — Username for authentication on the target inbound (cross-server outbounds only). Defaults to the current server name if not set.
+
+> `flow`: string — VLESS flow control value (VLESS outbounds only).
+
+> `endpoint`: string — Override the target server's endpoint address. Falls back to the server's `endpoint` field from its config.
+
+> `url`: string — Health check URL for urltest outbounds.
+
+> `interval`: string — Health check interval as a Go duration string (e.g. `"3m"`). Only used by urltest outbounds.
+
+> `domain_resolver`: string — DNS server tag for resolving domain names on this outbound.
+
+> `outbounds`: []string — List of outbound tags to select from (urltest and selector outbounds only).
+
+## Direct
+
+A direct outbound sends traffic without any proxy. This is the simplest outbound type.
+
+```json
+{
+  "type": "direct",
+  "tag": "direct",
+  "domain_resolver": "dns-local"
+}
+```
+
+The `domain_resolver` field is optional. When set, it specifies which DNS server to use for resolving domains on this outbound. Without it, no domain resolver is attached.
+
+## VLESS (Cross-Server)
+
+A VLESS outbound tunnels traffic to a VLESS inbound on another server. It requires multi-server mode with resolved credentials from `ServerState`.
+
+See [Multi-Server](/multi-server) and [Credentials](/credentials) for details on how cross-server credential resolution works.
+
+```json
+{
+  "type": "vless",
+  "tag": "remote-vless",
+  "server": "remote",
+  "inbound": "vless-in",
+  "user": "alice",
+  "flow": "xtls-rprx-vision",
+  "domain_resolver": "dns-intl"
+}
+```
+
+### TLS and Reality
+
+When the target inbound has Reality configured, the outbound automatically includes:
+
+- TLS with the target's `server_name`.
+- uTLS with `firefox` fingerprint.
+- Reality with the public key and the first ShortID from the inbound's list.
+
+When the target inbound has TLS with a `server_name` but no Reality, the outbound gets TLS with `server_name` only. When neither is configured, no TLS is added to the outbound.
+
+### Endpoint Resolution
+
+The server address is resolved in this order:
+
+1. `outbound.endpoint` if set.
+2. The target server's `endpoint` field from its `cheburbox.json`.
+
+The server port always comes from the target inbound's `listen_port` in the server state, not from the endpoint override.
+
+### Error Conditions
+
+- No `ServerState` available: returns "requires server state" error.
+- No user specified and no default user: returns "no user specified" error.
+- User not found on target inbound: returns "user not found" error.
+- No credentials on target inbound: returns "no credentials found" error.
+- No endpoint on target server: returns "no endpoint configured" error.
+
+## Hysteria2 (Cross-Server)
+
+A Hysteria2 outbound tunnels traffic to a Hysteria2 inbound on another server, similar to VLESS cross-server outbounds.
+
+```json
+{
+  "type": "hysteria2",
+  "tag": "remote-hy2",
+  "server": "remote",
+  "inbound": "hy2-in",
+  "user": "bob"
+}
+```
+
+### TLS and Certificate Pinning
+
+TLS is always enabled on Hysteria2 outbounds. If a `pin-sha256` value is available from the target server's state (computed from its TLS certificate), it is decoded and attached as `CertificatePublicKeySHA256`.
+
+### Obfuscation
+
+If the target inbound has obfuscation configured (`obfs`), the `ObfsPassword` is automatically propagated to the outbound with type `salamander`. Without obfuscation on the target, no obfs is added.
+
+## URLTest
+
+A urltest outbound automatically selects the best proxy from a list by testing latency against a URL at regular intervals.
+
+```json
+{
+  "type": "urltest",
+  "tag": "proxy",
+  "outbounds": ["vless-out", "hy2-out"],
+  "url": "https://www.gstatic.com/generate_204",
+  "interval": "3m"
+}
+```
+
+The `interval` field accepts Go duration strings. Common values include `"30s"`, `"1m"`, `"3m"`, `"5m"`. If empty, the interval defaults to zero.
+
+## Selector
+
+A selector outbound lets sing-box choose a proxy from a list, typically via external control plane or API.
+
+```json
+{
+  "type": "selector",
+  "tag": "manual-proxy",
+  "outbounds": ["vless-out", "hy2-out"]
+}
+```
+
+## Using Outbounds with Routing
+
+Outbound tags are referenced by route rules and the `route.final` field to direct traffic. See [Routing](/routing) for details on how rules match traffic to outbounds.
+
+::: tip
+Cross-server outbounds (VLESS, Hysteria2) are only built when a `ServerState` is available during multi-server generation. In single-server mode, they will produce an error.
+:::
+---
+url: /dns
+---
+# DNS
+
+The DNS section configures domain name resolution for the server. Every `cheburbox.json` must include at least one DNS server. DNS servers can be local (system resolver), remote (upstream DNS), or specialized types like fakeip.
+
+See [Config Reference](/config-reference) for the full schema placement.
+
+## DNS Section Fields
+
+> `servers`: []DNSServer — List of DNS server entries. At least one is required.
+
+> `final`: string — Default DNS server tag used when no rule matches. Optional in config but recommended.
+
+> `strategy`: string — Domain resolution strategy. One of `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only`, `as_is`. Defaults to `as_is`.
+
+> `rules`: array — DNS routing rules (sing-box format). Parsed as `[]option.DNSRule`.
+
+## DNS Server Fields
+
+Each entry in the `servers` array defines one DNS resolver.
+
+> `type`: string — Server type. One of `local`, `udp`, `tcp`, `tls`, `quic`, `https`, `http3`, `dhcp`, `fakeip`.
+
+> `tag`: string — Unique identifier for referencing this server in rules and the `final` field.
+
+> `server`: string — Remote server address (required for `udp`, `tcp`, `tls`, `quic`, `https`, `http3` types).
+
+> `server_port`: int — Remote server port. Maps to uint16 in output; values outside 0–65535 become 0.
+
+> `detour`: string — Outbound tag to route DNS queries through. Applies to all types except `fakeip`.
+
+## Server Types
+
+### local
+
+Uses the system DNS resolver. No remote server configuration needed.
+
+```json
+{
+  "type": "local",
+  "tag": "dns-local"
+}
+```
+
+### udp / tcp
+
+Plain DNS over UDP or TCP. Requires `server` and optionally `server_port`.
+
+```json
+{
+  "type": "udp",
+  "tag": "dns-plain",
+  "server": "8.8.8.8",
+  "server_port": 53,
+  "detour": "direct"
+}
+```
+
+### tls / quic
+
+DNS over TLS (DoT) or DNS over QUIC (DoQ). Provides encrypted DNS queries.
+
+```json
+{
+  "type": "tls",
+  "tag": "dns-remote",
+  "server": "8.8.8.8",
+  "server_port": 853,
+  "detour": "direct"
+}
+```
+
+### https / http3
+
+DNS over HTTPS (DoH) or DNS over HTTP/3.
+
+```json
+{
+  "type": "https",
+  "tag": "dns-doh",
+  "server": "https://dns.google/dns-query",
+  "detour": "direct"
+}
+```
+
+### dhcp
+
+Uses DHCP for DNS resolution. Supports the `detour` field.
+
+```json
+{
+  "type": "dhcp",
+  "tag": "dns-dhcp",
+  "detour": "direct"
+}
+```
+
+### fakeip
+
+Returns fake IP addresses for domain queries, used with sing-box's FakeIP feature. No additional configuration fields are available.
+
+```json
+{
+  "type": "fakeip",
+  "tag": "dns-fakeip"
+}
+```
+
+## Full Example
+
+```json
+{
+  "dns": {
+    "servers": [
+      {
+        "type": "local",
+        "tag": "dns-local"
+      },
+      {
+        "type": "tls",
+        "tag": "dns-remote",
+        "server": "8.8.8.8",
+        "server_port": 853,
+        "detour": "direct"
+      }
+    ],
+    "final": "dns-remote",
+    "strategy": "prefer_ipv4",
+    "rules": [
+      {
+        "rule_set": ["geosite-category-ru"],
+        "action": "route",
+        "server": "dns-local"
+      }
+    ]
+  }
+}
+```
+
+## DNS Rules
+
+DNS rules control which DNS server handles which queries. Rules are written in sing-box format and parsed contextually.
+
+```json
+{
+  "rules": [
+    {
+      "rule_set": ["geosite-category-ru"],
+      "action": "route",
+      "server": "dns-local"
+    }
+  ]
+}
+```
+
+Rules are evaluated in order. The first matching rule determines the DNS server. Unmatched queries fall through to the `final` server.
+
+## Strategy
+
+The `strategy` field controls IP address preference when resolving domains.
+
+| Value | Behavior |
+|---|---|
+| `prefer_ipv4` | Prefers A records, falls back to AAAA. |
+| `prefer_ipv6` | Prefers AAAA records, falls back to A. |
+| `ipv4_only` | Only resolves A records. |
+| `ipv6_only` | Only resolves AAAA records. |
+| `as_is` | Returns addresses as received (default). |
+
+Unrecognized strategy values silently default to `as_is`.
+
+## Detour
+
+The `detour` field on DNS servers routes DNS queries through a specific outbound. This is useful for sending DNS queries for foreign domains through a proxy outbound while keeping local DNS queries direct.
+
+See [Outbounds](/outbounds) for available outbound types and [Routing](/routing) for traffic routing rules.
+
+::: warning
+An empty DNS servers list is rejected by config validation. Ensure at least one server is defined.
+:::
+
+::: warning
+Unknown DNS server types produce an "unsupported dns server type" error. Use only the documented types.
+:::
+---
+url: /routing
+---
+# Routing
+
+The route section controls how traffic is matched and directed to outbounds. It is optional — when omitted, `auto_detect_interface` is automatically set to `true` in the generated config.
+
+See [Config Reference](/config-reference) for the full schema placement.
+
+## Route Section Fields
+
+> `final`: string — Default outbound tag for traffic that matches no rule.
+
+> `default_domain_resolver`: string — DNS server tag used for domain resolution in rules.
+
+> `auto_detect_interface`: bool — Enables automatic network interface detection.
+
+> `rules`: array — Route rules in sing-box format. Parsed as `[]option.Rule`.
+
+> `rule_sets`: array — Remote rule-set definitions in sing-box format. Parsed as `[]option.RuleSet`.
+
+> `custom_rule_sets`: []string — List of tags for locally compiled rule-sets.
+
+## Basic Example
+
+```json
+{
+  "route": {
+    "final": "direct",
+    "auto_detect_interface": true,
+    "rules": [
+      {
+        "action": "sniff"
+      }
+    ]
+  }
+}
+```
+
+When `route` is omitted entirely from `cheburbox.json`, an empty route is generated with `auto_detect_interface` set to `true`.
+
+## Rules
+
+Route rules match traffic and apply actions. Rules are written in sing-box format and parsed contextually, supporting the full sing-box rule syntax.
+
+```json
+{
+  "route": {
+    "final": "proxy",
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "rule_set": ["geosite-category-ru"],
+        "outbound": "direct"
+      }
+    ]
+  }
+}
+```
+
+Rules are evaluated in order. The first matching rule determines the outbound. Unmatched traffic uses the `final` outbound.
+
+## Rule Sets
+
+### Remote Rule Sets
+
+Remote rule-sets are fetched from URLs at runtime. They are defined in sing-box format in the `rule_sets` field.
+
+```json
+{
+  "rule_sets": [
+    {
+      "type": "remote",
+      "tag": "geoip",
+      "url": "https://example.com/geoip.json",
+      "format": "binary"
+    }
+  ]
+}
+```
+
+### Custom Rule Sets
+
+Custom rule-sets are compiled locally from JSON source files in the server directory. Each entry in `custom_rule_sets` references a `<name>.json` file that gets compiled to `rule-set/<name>.srs`.
+
+```json
+{
+  "route": {
+    "final": "direct",
+    "custom_rule_sets": ["extension", "fastly"]
+  }
+}
+```
+
+This generates local rule-set entries pointing to compiled `.srs` files:
+
+```json
+{
+  "type": "local",
+  "tag": "extension",
+  "path": "rule-set/extension.srs"
+}
+```
+
+Custom rule-sets are appended after any remote `rule_sets` in the generated config.
+
+::: tip
+Reserved filenames `cheburbox.json` and `config.json` in the server directory are never treated as rule-set sources.
+:::
+
+::: warning
+If a `custom_rule_sets` entry has no matching `.json` file in the server directory, no `.srs` output is produced. No error is raised.
+:::
+
+See [Rule Sets](/rule-sets) for details on the rule-set compilation pipeline and source file format.
+
+## Default Domain Resolver
+
+The `default_domain_resolver` field sets a DNS server for domain resolution in route rules.
+
+```json
+{
+  "route": {
+    "final": "direct",
+    "default_domain_resolver": "dns-local"
+  }
+}
+```
+
+When set, it generates a `DomainResolveOptions` entry pointing to the specified DNS server tag.
+
+## Auto Detect Interface
+
+The `auto_detect_interface` field enables automatic network interface detection. When the entire `route` section is omitted, this is automatically set to `true`.
+
+```json
+{
+  "route": {
+    "final": "direct",
+    "auto_detect_interface": true
+  }
+}
+```
+
+## Combining Remote and Custom Rule Sets
+
+Both remote and custom rule-sets can coexist. Remote rule-sets appear first, followed by custom ones.
+
+```json
+{
+  "route": {
+    "final": "proxy",
+    "rule_sets": [
+      {
+        "type": "remote",
+        "tag": "geoip",
+        "url": "https://example.com/geoip.json",
+        "format": "binary"
+      }
+    ],
+    "custom_rule_sets": ["extension"],
+    "rules": [
+      {"action": "sniff"}
+    ]
+  }
+}
+```
+
+This produces two rule-set entries: the remote `geoip` set followed by the local `extension` set.
+
+## Using Outbound Tags in Routes
+
+Route rules reference outbound tags defined in the `outbounds` section. The `final` field also references an outbound tag. See [Outbounds](/outbounds) for available outbound types and how tags are assigned.
+
+DNS servers referenced in rules or `default_domain_resolver` must be defined in the `dns.servers` section. See [DNS](/dns) for DNS server configuration.
+---
+url: /multi-server
+---
+# Multi-Server Architecture
+
+Cheburbox projects can contain multiple server directories, each with its own `cheburbox.json`. When an outbound references another server via the `server` field, cheburbox automatically resolves the dependency graph, orders generation, and provisions cross-server users.
+
+See [Overview](/overview) for the general project layout and [Outbounds](/outbounds) for the `server` field reference.
+
+## Dependency Graph Construction
+
+Each outbound with a non-empty `server` field creates a directed edge from the owning server to the target server. The graph is built by `BuildGraph` in `generate/graph.go`.
+
+```go
+// Edge: From → To means "From depends on To"
+Edge{From: "proxy-server", To: "exit-server"}
+```
+
+Three validation checks run during graph construction:
+
+1. **Self-references** — an outbound whose `server` equals its own directory name is rejected with `"has a self-referencing outbound"`.
+2. **Unknown servers** — an outbound referencing a directory name that does not exist is rejected with `"references unknown server"`.
+3. **Cycles** — a depth-first search with three-state coloring (`unvisited`, `in-progress`, `done`) detects circular dependencies and returns `"cycle detected in server dependencies"`.
+
+## Topological Sort
+
+After the graph passes validation, servers are ordered using Kahn's algorithm (in-degree based BFS). Servers with no incoming edges (no dependencies) are processed first, ensuring that target servers are always generated before the servers that reference them.
+
+The sort runs in `TopologicalSort` on the `Graph` struct (`generate/graph.go:101-138`).
+
+::: tip
+The topological order is not unique — multiple valid orderings may exist. Cheburbox picks one deterministically based on map iteration order.
+:::
+
+## Transitive Dependencies
+
+When the `--server` flag specifies a single server, cheburbox computes its transitive closure — all servers it depends on, directly or indirectly, including itself. This is done by `TransitiveDependencies` (`generate/graph.go:142-169`).
+
+For a chain `client → proxy → exit`, running `--server client` generates all three servers: `exit`, `proxy`, `client` (in topological order).
+
+```json
+// proxy-server/cheburbox.json
+{
+  "outbounds": [
+    { "type": "vless", "tag": "to-exit", "server": "exit-server", "inbound": "vless-in" }
+  ]
+}
+```
+
+## Cross-Server User Provisioning
+
+When an outbound references a target server's inbound, cheburbox automatically creates a user on the target if one does not already exist. This is handled by `provisionCrossServerUsers` (`generate/server.go:625-658`).
+
+Rules for cross-server provisioning:
+
+- Only `vless` and `hysteria2` outbound types trigger provisioning.
+- If the outbound does not specify a `user` field, the server's own directory name is used as the default.
+- Credentials are generated based on the target inbound's type (see [Credentials](/credentials) for details).
+- If the target inbound has not been loaded into state yet, the provisioning is silently skipped.
+
+## Dirty Regeneration
+
+Generation uses a shared `ServerState` across all servers. When cross-server provisioning adds a user to a target server that has already been processed, that target is marked as "dirty" and regenerated with the updated credentials.
+
+This two-phase approach (process in order, then regenerate dirty servers) handles cases where dependency ordering alone is insufficient:
+
+1. Pass 1: iterate servers in topological order, generating each and tracking dirty targets.
+2. Regeneration: for any already-processed server marked dirty, regenerate it with updated state.
+
+The orchestration lives in `generateWithDAG` (`generate/server.go:458-503`).
+
+## Example: Exit + Proxy Setup
+
+```
+project/
+├── exit-server/
+│   └── cheburbox.json
+└── proxy-server/
+    └── cheburbox.json
+```
+
+```json
+// exit-server/cheburbox.json
+{
+  "version": 1,
+  "endpoint": "10.0.0.1:443",
+  "dns": { "final": "dns-local", "servers": [{ "type": "local", "tag": "dns-local" }] },
+  "inbounds": [
+    {
+      "tag": "vless-in",
+      "type": "vless",
+      "listen_port": 443,
+      "users": [{ "name": "proxy-server" }]
+    }
+  ],
+  "outbounds": [{ "type": "direct", "tag": "direct" }]
+}
+```
+
+```json
+// proxy-server/cheburbox.json
+{
+  "version": 1,
+  "dns": { "final": "dns-local", "servers": [{ "type": "local", "tag": "dns-local" }] },
+  "outbounds": [
+    { "type": "direct", "tag": "direct" },
+    {
+      "type": "vless",
+      "tag": "exit-vless",
+      "server": "exit-server",
+      "inbound": "vless-in",
+      "user": "proxy-server"
+    }
+  ]
+}
+```
+
+Running `cheburbox generate` produces both `config.json` files. The exit server's config includes the `proxy-server` user, and the proxy server's config references the exit server's UUID and Reality keys.
+
+See [CLI Reference](/cli-reference) for generation commands and [Validation](/validation) for error handling.
+---
+url: /credentials
+---
+# Credentials
+
+Cheburbox generates and manages cryptographic credentials for each server. Credentials are persisted across runs so that the same UUIDs, keys, and passwords are reused unless you explicitly request regeneration.
+
+See [Inbounds](/inbounds) for how credentials are declared in `cheburbox.json` and [Outbounds](/outbounds) for how they are referenced across servers.
+
+## UUID Generation
+
+VLESS inbounds use UUID v4 for user identification. Generated via `github.com/gofrs/uuid/v5` (`uuid.NewV4()`), producing the standard `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` format.
+
+```go
+id, _ := uuid.NewV4()
+// "550e8400-e29b-41d4-a716-446655440000"
+```
+
+Auto-generated VLESS users receive the flow value `xtls-rprx-vision` by default.
+
+## Password Generation
+
+Hysteria2 inbounds use 24 random bytes encoded with base64 `StdEncoding` for user passwords and obfuscation passwords.
+
+```go
+// GeneratePassword produces e.g. "dGhpcyBpcyBhIHRlc3QgcGFzc3dvcmQ="
+b := make([]byte, 24)
+rand.Read(b)
+base64.StdEncoding.EncodeToString(b)
+```
+
+## X25519 Key Pairs
+
+Reality TLS requires an X25519 key pair. Generated via `crypto/ecdh`, with both private and public keys encoded using base64 `RawURLEncoding` (no padding).
+
+```go
+key, _ := ecdh.X25519().GenerateKey(rand.Reader)
+privateKey := base64.RawURLEncoding.EncodeToString(key.Bytes())
+publicKey  := base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes())
+```
+
+### Public Key Derivation
+
+`DerivePublicKey` reconstructs a public key from a persisted private key string. It tries three base64 encodings in order (`generate/credentials.go:80-94`):
+
+1. `StdEncoding` (standard with padding)
+2. `RawStdEncoding` (standard without padding)
+3. `RawURLEncoding` (URL-safe without padding)
+
+If all three fail, it returns `"all encodings failed"`.
+
+## Short ID
+
+Reality TLS uses a short ID for client identification. Generated as 8 random bytes encoded with base64 `RawURLEncoding`.
+
+```go
+b := make([]byte, 8)
+rand.Read(b)
+base64.RawURLEncoding.EncodeToString(b)
+```
+
+## Certificate Generation
+
+Hysteria2 inbounds with TLS configured generate self-signed Ed25519 certificates.
+
+- **Algorithm**: Ed25519.
+- **Validity**: 365 days from generation time.
+- **SAN**: The `server_name` field from the inbound's TLS configuration.
+- **Certificate file**: `certs/<server_name>.crt` (permissions `0644`).
+- **Key file**: `certs/<server_name>.key` (permissions `0600`).
+
+Certificates are generated in PEM format, with the key encoded as PKCS#8 (`generate/certs.go:58-73`).
+
+### Certificate Regeneration
+
+A certificate is regenerated when any of these conditions apply (`generate/certs.go:79-84`):
+
+- `--clean` flag is set.
+- The certificate or key file does not exist.
+- The existing certificate's DNS SAN does not contain the configured `server_name`.
+
+::: warning
+Regeneration is triggered by SAN mismatch even if the certificate has not expired. If you change `server_name`, a new certificate is always generated.
+:::
+
+## pin-sha256
+
+For Reality TLS outbounds, cheburbox computes a `pin-sha256` fingerprint from the target server's certificate. The fingerprint is the SHA-256 hash of the certificate's public key (SPKI), base64 `RawURLEncoded`, prefixed with `sha256/` (`generate/certs.go:120-140`).
+
+```go
+// Example output: "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+sum := sha256.Sum256(marshaledPublicKey)
+"sha256/" + base64.RawURLEncoding.EncodeToString(sum[:])
+```
+
+## Credential Persistence
+
+Credentials are persisted in the generated `config.json` file using sing-box option structs. On subsequent runs, cheburbox reads the existing `config.json` and extracts all credentials before generating (`config/persistence.go:47-63`).
+
+### What Gets Persisted
+
+| Credential | Source |
+|---|---|
+| VLESS user UUID + flow | `inbound.options.users[].uuid` |
+| Hysteria2 user password | `inbound.options.users[].password` |
+| Reality private key + short IDs | `inbound.options.tls.reality` |
+| Obfuscation password | `inbound.options.Obfs.password` |
+
+Extraction is handled by `ExtractCredentials` (`config/persistence.go:68-81`), which inspects VLESS and Hysteria2 inbound options.
+
+### Additive Behavior (Default)
+
+By default, credential resolution is additive: users that exist in `config.json` but are not declared in `cheburbox.json` are preserved. This means manually added users or cross-server provisioned users survive regeneration.
+
+::: tip
+Run generation multiple times and the same UUIDs are preserved from the existing `config.json`. Only new users get fresh credentials.
+:::
+
+### Clean Mode
+
+When `--clean` is passed, undeclared users are removed and all credentials are regenerated from scratch. This also triggers certificate regeneration regardless of SAN matching.
+
+::: warning
+Clean mode removes cross-server provisioned users that are not declared locally. If another server depends on a user you remove, that server's outbound will reference a non-existent user.
+:::
+
+## Missing or Invalid Config
+
+If `config.json` does not exist, cheburbox treats credentials as empty and generates fresh ones for all declared users. If the file exists but contains invalid JSON, generation fails with a parse error.
+
+See [Config Reference](/config-reference) for the full `cheburbox.json` schema and [Multi-Server](/multi-server) for how credentials flow across servers.
+---
+url: /cli-reference
+---
+# CLI Reference
+
+Complete reference for the `cheburbox` command-line interface.
+
+## Global Flags
+
+These flags apply to all subcommands.
+
+| Flag | Default | Required | Description |
+|---|---|---|---|
+| `--project` | CWD | No | Project root directory. Defaults to the current working directory. |
+| `--jpath` | `lib` | No | Jsonnet library path. Relative paths are resolved against the project root. |
+
+## Commands
+
+### `generate`
+
+Generate sing-box configuration files for all servers in the project.
+
+```shell
+cheburbox generate
+```
+
+| Flag | Default | Required | Description |
+|---|---|---|---|
+| `--server` | — | No | Generate only this server and its transitive dependencies. |
+| `--clean` | `false` | No | Remove undeclared users and credentials from config.json. |
+| `--dry-run` | `false` | No | Output JSON to stdout without writing files. All file content is base64-encoded. |
+
+When `--server` is specified, only that server and its transitive dependencies (determined by the DAG) are processed. Without `--server`, all servers in the project are processed.
+
+Dry-run output is a JSON array of objects with `server` and `files` fields. Each file entry has `path` and `content` (base64-encoded). This includes all files, not just binary ones.
+
+If no servers are found, prints `no servers found in project` and exits with code 0.
+
+See [Quick Start](/quick-start) for usage examples.
+
+### `validate`
+
+Validate cheburbox configurations without generating files. See [Validation](/validation) for details on the two-phase validation process.
+
+```shell
+cheburbox validate
+```
+
+| Flag | Default | Required | Description |
+|---|---|---|---|
+| `--server` | — | No | Validate only this server and its transitive dependencies. |
+
+Output is one line per server: `PASS`, `WARN`, or `FAIL`. Warnings and errors are printed to stdout. Any failure causes exit code 1.
+
+### `rule-set compile`
+
+Compile local rule-sets from JSON source to binary `.srs` format. See [Rule Sets](/rule-sets) for how rule-set sources are discovered and compiled.
+
+```shell
+cheburbox rule-set compile --server <name>
+```
+
+| Flag | Default | Required | Description |
+|---|---|---|---|
+| `--server` | — | No | Server name. Auto-discovers and compiles all rule-sets declared in the server's `custom_rule_sets`. |
+| `--input` | — | Yes\* | Input JSON rule-set file path. |
+| `--output` | — | Yes\* | Output `.srs` file path. |
+
+\* `--input` and `--output` are required when `--server` is not specified.
+
+When `--server` is used, the command loads the server config to read `route.custom_rule_sets`, discovers matching `<name>.json` source files in the server directory, and compiles each to `rule-set/<name>.srs`. The `rule-set/` directory is created with `0750` permissions.
+
+When `--server` is omitted, `--input` and `--output` must both be provided to compile a single file.
+
+## Exit Codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success (no errors). |
+| 1 | Any error occurred. Errors are printed to stderr. |
+
+## Usage Examples
+
+```shell
+# Generate all servers
+cheburbox generate
+
+# Generate a single server and its dependencies
+cheburbox generate --server proxy-server
+
+# Preview output without writing files
+cheburbox generate --dry-run
+
+# Remove stale users and credentials
+cheburbox generate --clean
+
+# Validate all servers
+cheburbox validate
+
+# Validate a single server
+cheburbox validate --server exit-server
+
+# Compile all rule-sets for a server
+cheburbox rule-set compile --server proxy-server
+
+# Compile a single rule-set file
+cheburbox rule-set compile --input extension.json --output extension.srs
+
+# Use a custom project directory
+cheburbox --project /path/to/project generate
+
+# Use a custom jsonnet library path
+cheburbox --jpath lib generate
+```
+---
+url: /rule-sets
+---
+# Rule Sets
+
+Cheburbox can compile local sing-box rule-sets from JSON source files into binary `.srs` format, integrated into the generation pipeline or run standalone.
+
+## Declaring Custom Rule Sets
+
+Rule sets are declared in the server's `cheburbox.json` under `route.custom_rule_sets` as a list of tag names.
+
+```json
+{
+  "version": 1,
+  "route": {
+    "custom_rule_sets": ["extension", "fastly"]
+  }
+}
+```
+
+Each tag name corresponds to a source file in the server directory: `<name>.json`.
+
+## Source File Format
+
+Source files are sing-box rule-set JSON objects with a `rules` array.
+
+```json
+{
+  "rules": [
+    {
+      "domain_suffix": [".example.com"],
+      "action": "sniff"
+    }
+  ],
+  "version": 1
+}
+```
+
+The `version` field controls the SRS format version. If omitted, `RuleSetVersionCurrent` is used.
+
+## Discovery
+
+The `FindSourceFiles` function scans the server directory for matching source files.
+
+1. Only `.json` files are considered. Files with `.jsonnet` or other extensions are ignored.
+2. Reserved filenames `cheburbox.json` and `config.json` are never treated as rule-set sources, regardless of whether they appear in `custom_rule_sets`.
+3. For each name in `custom_rule_sets`, the function looks for `<name>.json` in the server directory.
+4. If a declared name has no matching file, it is silently skipped.
+
+## Compilation
+
+Compilation converts JSON rule-set source to binary `.srs` format using the `sing-box common/srs` package (`srs.Write`).
+
+The output path is `rule-set/<name>.srs` inside the server directory. The `rule-set/` directory is created with `0750` permissions.
+
+Invalid JSON produces a parse error. Invalid rule-set content is not validated by cheburbox — it is caught by sing-box at runtime.
+
+## Integration with Generate
+
+When `custom_rule_sets` is non-empty and the generate pipeline runs, rule-sets are compiled automatically before the final config.json is written. The generated route config includes `rule_set` options pointing to the local `.srs` files.
+
+See [Routing](/routing) for how compiled rule-sets are referenced in route rules.
+
+## Standalone Compilation
+
+Rule-sets can also be compiled independently of the generate pipeline.
+
+```shell
+# Compile all rule-sets for a server
+cheburbox rule-set compile --server proxy-server
+
+# Compile a single file
+cheburbox rule-set compile --input extension.json --output extension.srs
+```
+
+When using `--server`, the command loads the server config to read `custom_rule_sets`, discovers matching source files, and compiles them. When `--server` is omitted, `--input` and `--output` must both be provided. See [CLI Reference](/cli-reference) for full flag details.
+
+## Project Structure
+
+```
+project/
+└── proxy-server/
+    ├── cheburbox.json          # declares custom_rule_sets
+    ├── extension.json           # rule-set source
+    ├── fastly.json              # rule-set source
+    ├── rule-set/
+    │   ├── extension.srs        # compiled output
+    │   └── fastly.srs           # compiled output
+    └── config.json              # generated config
+```
+
+See [Project Structure](/project-structure) for the full directory layout.
+---
+url: /validation
+---
+# Validation
+
+Cheburbox validates configurations in two phases. Phase 1 checks cheburbox.json consistency. Phase 2 checks the generated sing-box config.json.
+
+Run validation with `cheburbox validate`. See [CLI Reference](/cli-reference) for flags.
+
+## Phase 1: Cheburbox Consistency
+
+Phase 1 runs on all servers before Phase 2 begins. If Phase 1 produces global errors, Phase 2 is skipped entirely.
+
+### Global Checks
+
+These checks operate across all servers and are reported under server `(global)`.
+
+| Check | Description |
+|---|---|
+| DAG build | Builds the dependency graph from cross-server outbound references. Detects cycles, self-references, and unknown server references. |
+
+### Per-Server Checks
+
+These checks run independently for each server.
+
+| Check | Description |
+|---|---|
+| `config.Validate` | Schema version must be `1`. At least one DNS server must be defined. `endpoint` is required when inbounds are defined. Each inbound `listen_port` must be in range 0–65535. |
+| Hysteria2 server_name collision | Two hysteria2 inbounds on the same server must not share the same `tls.server_name`, as this would cause cert file conflicts. Reports the first and last colliding tags. |
+| Outbound-inbound reference | Cross-server outbounds (`server` + `inbound` fields) must reference an inbound tag that exists on the target server. |
+| Outbound group reference | `urltest` and `selector` outbounds must reference only outbound tags that exist on the same server. An empty `outbounds` list is valid and produces no error. |
+
+## Phase 2: Sing-Box Check
+
+Phase 2 runs only on servers that passed Phase 1.
+
+1. Reads `config.json` from the server directory.
+2. Changes the working directory to the server directory (required for relative paths in config.json).
+3. Parses the config with registry-aware unmarshaling.
+4. Creates a sing-box instance via `box.New` and immediately closes it.
+
+If `config.json` does not exist for a server, Phase 2 is skipped with a warning. The server is not marked as failed.
+
+See [Gotchas](/gotchas) for notes on Phase 2 behavior.
+
+## Output Format
+
+Results are sorted alphabetically by server name. Each server produces one of three outcomes:
+
+| Status | Meaning |
+|---|---|
+| `PASS` | All checks passed. |
+| `WARN` | Phase 1 passed, but Phase 2 was skipped (e.g., config.json not found). |
+| `FAIL` | One or more errors found. |
+
+```
+PASS  exit-server
+WARN  proxy-server: skipped sing-box check: proxy-server/config.json not found
+FAIL  bad-server: unsupported version 2 (want 1)
+```
+
+Any `FAIL` causes exit code 1. Warnings alone do not cause a non-zero exit.
+
+## Single-Server Validation
+
+Use `--server` to validate a specific server and its transitive dependencies:
+
+```shell
+cheburbox validate --server proxy-server
+```
+
+This resolves the dependency graph and runs both phases on the selected server and all servers it depends on. Other servers in the project are not validated.
+
+See [Multi-Server](/multi-server) for how dependencies are resolved.
+---
+url: /gotchas
+---
+# Gotchas
+
+Common mistakes, edge cases, and non-obvious behaviors.
+
+## Configuration
+
+**Q: Why is `{"version": 0, ...}` rejected?**
+
+JSON zero value for integers is `0`. Cheburbox requires `version: 1` explicitly. Omitting `version` or setting it to `0` both fail validation with "unsupported version 0 (want 1)".
+
+**Q: Do outbound-only servers need an `endpoint`?**
+
+No. The `endpoint` field is required only when the server has at least one inbound. Servers with only outbounds (e.g., client/proxy servers) can omit it. See [Config Reference](/config-reference) for details.
+
+**Q: Are DNS rules or route rules validated by cheburbox?**
+
+No. DNS rules and route rules are raw JSON passthrough. Invalid rule content is caught by the sing-box check during Phase 2 validation, not by cheburbox itself. See [Validation](/validation).
+
+## Inbounds
+
+**Q: What filename do TLS certificates use?**
+
+Certificate paths are `certs/<tls.server_name>.crt` and `certs/<tls.server_name>.key`, based on the `server_name` field, not the inbound tag. See [Inbounds](/inbounds).
+
+**Q: Can two hysteria2 inbounds share the same `server_name`?**
+
+No. Validation rejects this because both inbounds would write to the same cert file. This is detected in Phase 1.
+
+**Q: Are users listed in declaration order?**
+
+No. VLESS and hysteria2 users are sorted alphabetically by name in the generated config.json, regardless of their order in cheburbox.json.
+
+**Q: What `flow` do VLESS users get?**
+
+Auto-generated VLESS users default to `xtls-rprx-vision`. Set a per-user `flow` via `InboundUser.Flow` in cheburbox.json. See [Inbounds](/inbounds).
+
+## Outbounds
+
+**Q: Can I use `BuildOutbound` standalone for cross-server types?**
+
+No. Cross-server outbounds (vless, hysteria2) require `ServerState` which is only available during full generation. Standalone `BuildOutbound` will fail for these types. See [Outbounds](/outbounds).
+
+**Q: What is the default user for cross-server outbounds?**
+
+When `user` is omitted, it defaults to the current server's directory name (e.g., `"proxy-server"`), not any config field or hostname.
+
+**Q: Does `endpoint` override on an outbound change the port?**
+
+No. Setting `outbound.endpoint` to `"5.6.7.8:8443"` sets the server address, but `ServerPort` in the generated config still comes from the target inbound's `listen_port`. See [Outbounds](/outbounds).
+
+## Credentials
+
+**Q: Is generation idempotent?**
+
+Subsequent runs preserve credentials by reading the existing config.json. However, if config.json is deleted, the next run generates entirely new credentials.
+
+::: warning
+Deleting config.json causes new credentials to be generated on the next run. All existing users on the server will be invalidated.
+:::
+
+**Q: What does `--clean` actually remove?**
+
+`--clean` removes all users and credentials not declared in cheburbox.json, including users auto-created by cross-server provisioning from other servers. See [Credentials](/credentials).
+
+**Q: When are certificates regenerated?**
+
+Certificates are regenerated when the SAN (Subject Alternative Name) doesn't match the current `tls.server_name`, even if the certificate has not expired. A valid certificate with a wrong SAN is overwritten.
+
+## Generation
+
+**Q: What happens if server B is processed before server A?**
+
+If server B depends on server A and A provisions a user on B, B may be regenerated after A is processed. This is correct behavior but can be surprising. See [Multi-Server](/multi-server).
+
+## Validation
+
+**Q: Why does Phase 2 show a warning instead of failing?**
+
+Phase 2 is skipped with a `WARN` when config.json does not exist. This is not treated as a failure because the server's cheburbox.json config may be valid even without a generated output. Exit code remains 0 if no errors are present.
+
+::: warning
+Run `cheburbox generate` before `cheburbox validate` to get full Phase 2 coverage. Without generated config.json files, Phase 2 is skipped.
+:::
+
+**Q: How are cycle errors reported?**
+
+Dependency cycles are reported as a `(global)` result with a "cycle detected" error. Phase 2 is skipped entirely when cycles exist.
+
+## Rule Sets
+
+**Q: Can I use `.jsonnet` files as rule-set sources?**
+
+No. Only `.json` files are discovered as rule-set sources. The `.cheburbox.jsonnet` file is the server config only. See [Rule Sets](/rule-sets).
+
+**Q: What if `custom_rule_sets` lists a name with no matching file?**
+
+It is silently skipped. No error is produced.
+
+## CLI
+
+**Q: Does `--dry-run` only base64-encode binary files?**
+
+No. `--dry-run` base64-encodes all file content, including JSON config files. See [CLI Reference](/cli-reference).
+
+**Q: Where is `--jpath` resolved relative to?**
+
+Relative `--jpath` values are resolved against the project root, not the current working directory. The default value is `lib`.
