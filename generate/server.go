@@ -139,7 +139,7 @@ func resolveCredentials(
 	for _, in := range cfg.Inbounds {
 		creds, err := resolveInboundCredentials(in, persisted, clean)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("inbound %q: %w", in.Tag, err)
 		}
 		credsMap[in.Tag] = creds
 	}

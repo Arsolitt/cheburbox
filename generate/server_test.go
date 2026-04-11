@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sagernet/sing-box/option"
@@ -371,6 +372,46 @@ func TestResolveCredentialsDerivePublicKeyFromPrivate(t *testing.T) {
 
 	if vlessCreds.Reality.PublicKey != expectedPub {
 		t.Errorf("PublicKey = %q, want %q (derived from private key)", vlessCreds.Reality.PublicKey, expectedPub)
+	}
+}
+
+func TestResolveCredentialsDerivePublicKeyInvalid(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Inbounds: []config.Inbound{
+			{
+				Tag:   "vless-in",
+				Type:  "vless",
+				Users: []config.InboundUser{{Name: "alice"}},
+				TLS: &config.InboundTLS{
+					Reality: &config.RealityConfig{
+						Handshake: &config.RealityHandshake{
+							Server:     "example.com",
+							ServerPort: 443,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	persisted := config.EmptyPersistedCredentials()
+	persisted.RealityKeys["vless-in"] = config.RealityKeyPair{
+		PrivateKey: "not-valid-base64",
+		PublicKey:  "",
+		ShortID:    []string{"sid"},
+	}
+	persisted.InboundUsers["vless-in"] = map[string]config.UserCredentials{
+		"alice": {UUID: "persisted-uuid"},
+	}
+
+	_, err := resolveCredentials(cfg, persisted, false)
+	if err == nil {
+		t.Fatal("expected error for invalid private key, got nil")
+	}
+	if !strings.Contains(err.Error(), "derive public key") {
+		t.Errorf("error = %q, want it to contain 'derive public key'", err.Error())
 	}
 }
 

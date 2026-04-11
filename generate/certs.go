@@ -58,7 +58,7 @@ func GenerateSelfSignedCert(serverName string) ([]byte, ed25519.PrivateKey, erro
 func GenerateSelfSignedCertPEM(serverName string) ([]byte, []byte, error) {
 	certDER, priv, err := GenerateSelfSignedCert(serverName)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("generate self-signed cert: %w", err)
 	}
 
 	keyDER, err := x509.MarshalPKCS8PrivateKey(priv)
