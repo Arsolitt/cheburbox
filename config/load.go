@@ -136,5 +136,15 @@ func Validate(cfg Config) error {
 		return errors.New("endpoint is required when inbounds are defined")
 	}
 
+	for _, in := range cfg.Inbounds {
+		if in.ListenPort < 0 || in.ListenPort > 65535 {
+			return fmt.Errorf(
+				"inbound %q: listen_port %d is out of range (0-65535)",
+				in.Tag,
+				in.ListenPort,
+			)
+		}
+	}
+
 	return nil
 }

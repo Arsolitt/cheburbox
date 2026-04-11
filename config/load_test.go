@@ -452,6 +452,66 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "error on negative listen_port",
+			config: Config{
+				Version:  1,
+				Endpoint: "1.2.3.4",
+				DNS: DNS{
+					Servers: []DNSServer{{Type: "local", Tag: "dns-local"}},
+					Final:   strPtr("dns-local"),
+				},
+				Inbounds: []Inbound{
+					{Tag: "in1", Type: "vless", ListenPort: -1},
+				},
+			},
+			wantErr: true,
+			errMsg:  "listen_port",
+		},
+		{
+			name: "error on listen_port above 65535",
+			config: Config{
+				Version:  1,
+				Endpoint: "1.2.3.4",
+				DNS: DNS{
+					Servers: []DNSServer{{Type: "local", Tag: "dns-local"}},
+					Final:   strPtr("dns-local"),
+				},
+				Inbounds: []Inbound{
+					{Tag: "in1", Type: "vless", ListenPort: 70000},
+				},
+			},
+			wantErr: true,
+			errMsg:  "listen_port",
+		},
+		{
+			name: "zero listen_port is valid",
+			config: Config{
+				Version:  1,
+				Endpoint: "1.2.3.4",
+				DNS: DNS{
+					Servers: []DNSServer{{Type: "local", Tag: "dns-local"}},
+					Final:   strPtr("dns-local"),
+				},
+				Inbounds: []Inbound{
+					{Tag: "in1", Type: "tun", ListenPort: 0},
+				},
+			},
+		},
+		{
+			name: "max valid listen_port 65535",
+			config: Config{
+				Version:  1,
+				Endpoint: "1.2.3.4",
+				DNS: DNS{
+					Servers: []DNSServer{{Type: "local", Tag: "dns-local"}},
+					Final:   strPtr("dns-local"),
+				},
+				Inbounds: []Inbound{
+					{Tag: "in1", Type: "vless", ListenPort: 65535},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
