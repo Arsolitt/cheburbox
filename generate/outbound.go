@@ -82,13 +82,21 @@ func buildURLTestOutbound(out config.Outbound) (option.Outbound, error) {
 		return option.Outbound{}, fmt.Errorf("parse urltest interval: %w", err)
 	}
 
+	idleTimeout, err := parseInterval(out.IdleTimeout)
+	if err != nil {
+		return option.Outbound{}, fmt.Errorf("parse urltest idle_timeout: %w", err)
+	}
+
 	return option.Outbound{
 		Type: "urltest",
 		Tag:  out.Tag,
 		Options: &option.URLTestOutboundOptions{
-			Outbounds: out.Outbounds,
-			URL:       out.URL,
-			Interval:  interval,
+			Outbounds:                 out.Outbounds,
+			URL:                       out.URL,
+			Interval:                  interval,
+			Tolerance:                 out.Tolerance,
+			IdleTimeout:               idleTimeout,
+			InterruptExistConnections: out.InterruptExistConnections,
 		},
 	}, nil
 }
