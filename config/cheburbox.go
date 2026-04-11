@@ -65,15 +65,18 @@ type Inbound struct {
 	Tag                    string            `json:"tag"`
 	Listen                 string            `json:"listen,omitempty"`
 	InterfaceName          string            `json:"interface_name,omitempty"`
-	Users                  []InboundUser     `json:"users,omitempty"`
-	Address                []string          `json:"address,omitempty"`
 	ExcludeInterface       []string          `json:"exclude_interface,omitempty"`
+	Address                []string          `json:"address,omitempty"`
+	Users                  []InboundUser     `json:"users,omitempty"`
 	RouteExcludeAddress    []string          `json:"route_exclude_address,omitempty"`
 	DownMbps               int               `json:"down_mbps,omitempty"`
 	UpMbps                 int               `json:"up_mbps,omitempty"`
 	MTU                    int               `json:"mtu,omitempty"`
 	ListenPort             int               `json:"listen_port,omitempty"`
+	IPRoute2TableIndex     int               `json:"iproute2_table_index,omitempty"`
+	IPRoute2RuleIndex      int               `json:"iproute2_rule_index,omitempty"`
 	AutoRoute              bool              `json:"auto_route,omitempty"`
+	StrictRoute            bool              `json:"strict_route,omitempty"`
 	EndpointIndependentNAT bool              `json:"endpoint_independent_nat,omitempty"`
 }
 
