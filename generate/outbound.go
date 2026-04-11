@@ -229,6 +229,16 @@ func buildCrossServerHysteria2Outbound(
 
 	port, _ := state.GetListenPort(out.Server, out.Inbound)
 
+	tlsOpts := &option.OutboundTLSOptions{
+		Enabled: true,
+	}
+	if creds.ServerName != "" {
+		tlsOpts.ServerName = creds.ServerName
+	}
+	if len(creds.ALPN) > 0 {
+		tlsOpts.ALPN = badoption.Listable[string](creds.ALPN)
+	}
+
 	opts := option.Hysteria2OutboundOptions{
 		ServerOptions: option.ServerOptions{
 			Server:     host,
@@ -236,9 +246,7 @@ func buildCrossServerHysteria2Outbound(
 		},
 		Password: userCreds.Password,
 		OutboundTLSOptionsContainer: option.OutboundTLSOptionsContainer{
-			TLS: &option.OutboundTLSOptions{
-				Enabled: true,
-			},
+			TLS: tlsOpts,
 		},
 	}
 

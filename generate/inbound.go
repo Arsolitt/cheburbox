@@ -18,6 +18,7 @@ type InboundCredentials struct {
 	Reality      *RealityKeys
 	ObfsPassword string
 	ServerName   string
+	ALPN         []string
 }
 
 // UserCreds holds per-user credentials.

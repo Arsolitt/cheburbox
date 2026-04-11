@@ -227,6 +227,7 @@ func resolveObfsPassword(
 func resolveServerName(in config.Inbound, creds *InboundCredentials) {
 	if in.TLS != nil {
 		creds.ServerName = in.TLS.ServerName
+		creds.ALPN = in.TLS.ALPN
 	}
 }
 
@@ -678,6 +679,9 @@ func mergeCredentialsIntoState(state *ServerState, server string, tag string, cr
 	}
 	if existing.ServerName == "" && creds.ServerName != "" {
 		existing.ServerName = creds.ServerName
+	}
+	if len(existing.ALPN) == 0 && len(creds.ALPN) > 0 {
+		existing.ALPN = creds.ALPN
 	}
 
 	state.StoreInboundCredentials(server, tag, existing)
