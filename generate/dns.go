@@ -29,6 +29,10 @@ func ConvertDNS(cfg config.DNS) (*option.DNSOptions, error) {
 		},
 	}
 
+	if cfg.CacheCapacity != nil {
+		opts.DNSClientOptions.CacheCapacity = *cfg.CacheCapacity
+	}
+
 	if len(cfg.Rules) > 0 {
 		ctx := include.Context(context.Background())
 		var rules []option.DNSRule

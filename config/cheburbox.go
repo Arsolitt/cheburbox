@@ -22,10 +22,11 @@ type Config struct {
 
 // DNS holds the DNS configuration section.
 type DNS struct {
-	Final    *string         `json:"final,omitempty"`
-	Strategy *string         `json:"strategy,omitempty"`
-	Servers  []DNSServer     `json:"servers"`
-	Rules    json.RawMessage `json:"rules,omitempty"`
+	Final         *string         `json:"final,omitempty"`
+	Strategy      *string         `json:"strategy,omitempty"`
+	CacheCapacity *uint32         `json:"cache_capacity,omitempty"`
+	Servers       []DNSServer     `json:"servers"`
+	Rules         json.RawMessage `json:"rules,omitempty"`
 }
 
 // DNSServer represents a single DNS server entry.
