@@ -110,17 +110,20 @@ type MasqueradeConfig struct {
 // Outbound represents a single outbound configuration.
 // Use Type field to determine which fields are relevant.
 type Outbound struct {
-	Type           string   `json:"type"`
-	Tag            string   `json:"tag"`
-	Server         string   `json:"server,omitempty"`
-	Inbound        string   `json:"inbound,omitempty"`
-	User           string   `json:"user,omitempty"`
-	Flow           string   `json:"flow,omitempty"`
-	Endpoint       string   `json:"endpoint,omitempty"`
-	URL            string   `json:"url,omitempty"`
-	Interval       string   `json:"interval,omitempty"`
-	DomainResolver string   `json:"domain_resolver,omitempty"`
-	Outbounds      []string `json:"outbounds,omitempty"`
+	Endpoint                  string   `json:"endpoint,omitempty"`
+	DomainResolver            string   `json:"domain_resolver,omitempty"`
+	Server                    string   `json:"server,omitempty"`
+	Inbound                   string   `json:"inbound,omitempty"`
+	User                      string   `json:"user,omitempty"`
+	Flow                      string   `json:"flow,omitempty"`
+	Interval                  string   `json:"interval,omitempty"`
+	Type                      string   `json:"type"`
+	Tag                       string   `json:"tag"`
+	URL                       string   `json:"url,omitempty"`
+	IdleTimeout               string   `json:"idle_timeout,omitempty"`
+	Outbounds                 []string `json:"outbounds,omitempty"`
+	Tolerance                 uint16   `json:"tolerance,omitempty"`
+	InterruptExistConnections bool     `json:"interrupt_exist_connections,omitempty"`
 }
 
 // Route holds the routing configuration section.
