@@ -42,88 +42,12 @@ type FileOutput struct {
 }
 
 // GenerateServer generates a complete sing-box configuration for a server.
-// It resolves credentials, builds all options, adds boilerplate settings,
-// and marshals the result to JSON.
 //
 //nolint:revive // "generate.Generate" stutter is intentional for API clarity.
 func GenerateServer(dir string, cfg config.Config, genCfg GenerateConfig) (GenerateResult, error) {
-	configPath := filepath.Join(dir, "config.json")
-
-	persisted, err := config.LoadPersistedCredentials(configPath)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("load persisted credentials: %w", err)
-	}
-
-	credsMap, err := resolveCredentials(cfg, persisted, genCfg.Clean)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("resolve credentials: %w", err)
-	}
-
-	certFiles, err := resolveCertificates(dir, cfg, genCfg.Clean)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("resolve certificates: %w", err)
-	}
-
-	ruleSetFiles, err := compileRuleSets(dir, &cfg)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("compile rule-sets: %w", err)
-	}
-
-	dnsOpts, err := ConvertDNS(cfg.DNS)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("convert dns: %w", err)
-	}
-
-	routeOpts, err := ConvertRoute(cfg.Route)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("convert route: %w", err)
-	}
-
-	inbounds, err := buildInbounds(cfg.Inbounds, credsMap)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("build inbounds: %w", err)
-	}
-
-	outbounds, err := buildOutbounds(cfg.Outbounds)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("build outbounds: %w", err)
-	}
-
-	opts := option.Options{
-		DNS:       dnsOpts,
-		Route:     routeOpts,
-		Inbounds:  inbounds,
-		Outbounds: outbounds,
-	}
-
-	if len(cfg.Log) > 0 {
-		logOpts, logErr := unmarshalLog(cfg.Log)
-		if logErr != nil {
-			return GenerateResult{}, fmt.Errorf("unmarshal log: %w", logErr)
-		}
-		opts.Log = logOpts
-	}
-
-	if cfg.Route == nil && opts.Route != nil {
-		opts.Route.AutoDetectInterface = true
-	}
-
-	addBoilerplate(&opts)
-
-	configJSON, err := marshalOptions(&opts)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("marshal config: %w", err)
-	}
-
-	files := make([]FileOutput, 0, 1+len(certFiles)+len(ruleSetFiles))
-	files = append(files, FileOutput{Path: "config.json", Content: configJSON})
-	files = append(files, certFiles...)
-	files = append(files, ruleSetFiles...)
-
-	return GenerateResult{
-		Server: filepath.Base(dir),
-		Files:  files,
-	}, nil
+	state := NewServerState()
+	result, _, err := generateServerWithState(dir, filepath.Base(dir), cfg, genCfg, state)
+	return result, err
 }
 
 // resolveCredentials merges persisted credentials with newly generated ones
@@ -390,18 +314,6 @@ func buildInbounds(inbounds []config.Inbound, credsMap map[string]InboundCredent
 	return result, nil
 }
 
-func buildOutbounds(outbounds []config.Outbound) ([]option.Outbound, error) {
-	result := make([]option.Outbound, 0, len(outbounds))
-	for _, out := range outbounds {
-		outbound, err := BuildOutbound(out)
-		if err != nil {
-			return nil, fmt.Errorf("outbound %q: %w", out.Tag, err)
-		}
-		result = append(result, outbound)
-	}
-	return result, nil
-}
-
 func marshalOptions(opts *option.Options) ([]byte, error) {
 	ctx := include.Context(context.Background())
 	data, err := singjson.MarshalContext(ctx, opts)
@@ -567,7 +479,7 @@ func generateWithDAG(
 
 		for target := range dirty {
 			if _, exists := resultMap[target]; exists {
-				result, regenErr := regenerateServer(
+				result, _, regenErr := generateServerWithState(
 					filepath.Join(projectRoot, target),
 					target,
 					configs[target],
@@ -708,100 +620,6 @@ func generateServerWithState(
 		Server: serverName,
 		Files:  files,
 	}, dirty, nil
-}
-
-func regenerateServer(
-	dir string,
-	serverName string,
-	cfg config.Config,
-	genCfg GenerateConfig,
-	state *ServerState,
-) (GenerateResult, error) {
-	persisted, err := config.LoadPersistedCredentials(filepath.Join(dir, "config.json"))
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("load persisted credentials: %w", err)
-	}
-
-	credsMap, err := resolveCredentials(cfg, persisted, genCfg.Clean)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("resolve credentials: %w", err)
-	}
-
-	for _, in := range cfg.Inbounds {
-		state.StoreInboundType(serverName, in.Tag, in.Type)
-		if in.ListenPort > 0 && in.ListenPort <= math.MaxUint16 {
-			state.StoreListenPort(serverName, in.Tag, uint16(in.ListenPort))
-		}
-		mergeCredentialsIntoState(state, serverName, in.Tag, credsMap[in.Tag])
-	}
-
-	mergeStateUsersIntoCredsMap(serverName, credsMap, state)
-
-	ruleSetFiles, err := compileRuleSets(dir, &cfg)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("compile rule-sets: %w", err)
-	}
-
-	dnsOpts, err := ConvertDNS(cfg.DNS)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("convert dns: %w", err)
-	}
-
-	routeOpts, err := ConvertRoute(cfg.Route)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("convert route: %w", err)
-	}
-
-	inbounds, err := buildInbounds(cfg.Inbounds, credsMap)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("build inbounds: %w", err)
-	}
-
-	outbounds, err := buildOutboundsWithState(cfg.Outbounds, state, serverName)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("build outbounds: %w", err)
-	}
-
-	opts := option.Options{
-		DNS:       dnsOpts,
-		Route:     routeOpts,
-		Inbounds:  inbounds,
-		Outbounds: outbounds,
-	}
-
-	if len(cfg.Log) > 0 {
-		logOpts, logErr := unmarshalLog(cfg.Log)
-		if logErr != nil {
-			return GenerateResult{}, fmt.Errorf("unmarshal log: %w", logErr)
-		}
-		opts.Log = logOpts
-	}
-
-	if cfg.Route == nil && opts.Route != nil {
-		opts.Route.AutoDetectInterface = true
-	}
-
-	addBoilerplate(&opts)
-
-	configJSON, err := marshalOptions(&opts)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("marshal config: %w", err)
-	}
-
-	certFiles, err := resolveCertificatesWithState(dir, cfg, genCfg.Clean, state, serverName)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("resolve certificates: %w", err)
-	}
-
-	files := make([]FileOutput, 0, 1+len(certFiles)+len(ruleSetFiles))
-	files = append(files, FileOutput{Path: "config.json", Content: configJSON})
-	files = append(files, certFiles...)
-	files = append(files, ruleSetFiles...)
-
-	return GenerateResult{
-		Server: serverName,
-		Files:  files,
-	}, nil
 }
 
 func provisionCrossServerUsers(cfg config.Config, state *ServerState, serverName string) map[string]bool {
