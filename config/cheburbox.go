@@ -56,24 +56,23 @@ func UserName(users []InboundUser) []string {
 // Inbound represents a single inbound configuration.
 // Use Type field to determine which fields are relevant.
 type Inbound struct {
-	Obfs                   *ObfsConfig       `json:"obfs,omitempty"`
-	TLS                    *InboundTLS       `json:"tls,omitempty"`
-	Masq                   *MasqueradeConfig `json:"masquerade,omitempty"`
-	Type                   string            `json:"type"`
-	Stack                  string            `json:"stack,omitempty"`
-	Tag                    string            `json:"tag"`
-	Listen                 string            `json:"listen,omitempty"`
-	InterfaceName          string            `json:"interface_name,omitempty"`
-	Users                  []InboundUser     `json:"users,omitempty"`
-	Address                []string          `json:"address,omitempty"`
-	ExcludeInterface       []string          `json:"exclude_interface,omitempty"`
-	RouteExcludeAddress    []string          `json:"route_exclude_address,omitempty"`
-	DownMbps               int               `json:"down_mbps,omitempty"`
-	UpMbps                 int               `json:"up_mbps,omitempty"`
-	MTU                    int               `json:"mtu,omitempty"`
-	ListenPort             int               `json:"listen_port,omitempty"`
-	AutoRoute              bool              `json:"auto_route,omitempty"`
-	EndpointIndependentNAT bool              `json:"endpoint_independent_nat,omitempty"`
+	Obfs                *ObfsConfig       `json:"obfs,omitempty"`
+	TLS                 *InboundTLS       `json:"tls,omitempty"`
+	Masq                *MasqueradeConfig `json:"masquerade,omitempty"`
+	Type                string            `json:"type"`
+	Stack               string            `json:"stack,omitempty"`
+	Tag                 string            `json:"tag"`
+	Listen              string            `json:"listen,omitempty"`
+	InterfaceName       string            `json:"interface_name,omitempty"`
+	Users               []InboundUser     `json:"users,omitempty"`
+	Address             []string          `json:"address,omitempty"`
+	ExcludeInterface    []string          `json:"exclude_interface,omitempty"`
+	RouteExcludeAddress []string          `json:"route_exclude_address,omitempty"`
+	DownMbps            int               `json:"down_mbps,omitempty"`
+	UpMbps              int               `json:"up_mbps,omitempty"`
+	MTU                 int               `json:"mtu,omitempty"`
+	ListenPort          int               `json:"listen_port,omitempty"`
+	AutoRoute           bool              `json:"auto_route,omitempty"`
 }
 
 // InboundTLS holds TLS configuration for an inbound.
