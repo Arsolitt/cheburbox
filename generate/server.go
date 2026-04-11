@@ -54,7 +54,10 @@ func GenerateServer(dir string, cfg config.Config, genCfg GenerateConfig) (Gener
 		return GenerateResult{}, fmt.Errorf("load persisted credentials: %w", err)
 	}
 
-	credsMap := resolveCredentials(cfg, persisted, genCfg.Clean)
+	credsMap, err := resolveCredentials(cfg, persisted, genCfg.Clean)
+	if err != nil {
+		return GenerateResult{}, fmt.Errorf("resolve credentials: %w", err)
+	}
 
 	certFiles, err := resolveCertificates(dir, cfg, genCfg.Clean)
 	if err != nil {
@@ -130,47 +133,75 @@ func resolveCredentials(
 	cfg config.Config,
 	persisted config.PersistedCredentials,
 	clean bool,
-) map[string]InboundCredentials {
+) (map[string]InboundCredentials, error) {
 	credsMap := make(map[string]InboundCredentials, len(cfg.Inbounds))
 
 	for _, in := range cfg.Inbounds {
-		creds := InboundCredentials{
-			Users: make(map[string]UserCreds, len(in.Users)),
+		creds, err := resolveInboundCredentials(in, persisted, clean)
+		if err != nil {
+			return nil, err
 		}
-
-		for _, user := range in.Users {
-			if uc, ok := findPersistedUser(persisted, in.Tag, user.Name); ok {
-				creds.Users[user.Name] = UserCreds{
-					UUID:     uc.UUID,
-					Password: uc.Password,
-					Flow:     uc.Flow,
-				}
-				continue
-			}
-
-			creds.Users[user.Name] = generateUserCreds(in.Type)
-		}
-
-		if !clean {
-			for name, uc := range persisted.InboundUsers[in.Tag] {
-				if _, declared := creds.Users[name]; !declared {
-					creds.Users[name] = UserCreds{
-						UUID:     uc.UUID,
-						Password: uc.Password,
-						Flow:     uc.Flow,
-					}
-				}
-			}
-		}
-
-		resolveRealityKeys(in, persisted, &creds)
-		resolveObfsPassword(in, persisted, &creds)
-		resolveServerName(in, &creds)
-
 		credsMap[in.Tag] = creds
 	}
 
-	return credsMap
+	return credsMap, nil
+}
+
+func resolveInboundCredentials(
+	in config.Inbound,
+	persisted config.PersistedCredentials,
+	clean bool,
+) (InboundCredentials, error) {
+	creds := InboundCredentials{
+		Users: make(map[string]UserCreds, len(in.Users)),
+	}
+
+	for _, user := range in.Users {
+		if uc, ok := findPersistedUser(persisted, in.Tag, user.Name); ok {
+			creds.Users[user.Name] = UserCreds{
+				UUID:     uc.UUID,
+				Password: uc.Password,
+				Flow:     uc.Flow,
+			}
+			continue
+		}
+
+		uc, err := generateUserCreds(in.Type)
+		if err != nil {
+			return InboundCredentials{}, fmt.Errorf("generate credentials for user %q: %w", user.Name, err)
+		}
+		creds.Users[user.Name] = uc
+	}
+
+	if !clean {
+		preserveExtraPersistedUsers(persisted, in.Tag, &creds)
+	}
+
+	if err := resolveRealityKeys(in, persisted, &creds); err != nil {
+		return InboundCredentials{}, err
+	}
+	if err := resolveObfsPassword(in, persisted, &creds); err != nil {
+		return InboundCredentials{}, err
+	}
+	resolveServerName(in, &creds)
+
+	return creds, nil
+}
+
+func preserveExtraPersistedUsers(
+	persisted config.PersistedCredentials,
+	tag string,
+	creds *InboundCredentials,
+) {
+	for name, uc := range persisted.InboundUsers[tag] {
+		if _, declared := creds.Users[name]; !declared {
+			creds.Users[name] = UserCreds{
+				UUID:     uc.UUID,
+				Password: uc.Password,
+				Flow:     uc.Flow,
+			}
+		}
+	}
 }
 
 func findPersistedUser(
@@ -186,14 +217,22 @@ func findPersistedUser(
 	return uc, ok
 }
 
-func generateUserCreds(inboundType string) UserCreds {
+func generateUserCreds(inboundType string) (UserCreds, error) {
 	switch inboundType {
 	case inboundTypeVLESS:
-		return UserCreds{UUID: GenerateUUID(), Flow: "xtls-rprx-vision"}
+		uuid, err := GenerateUUID()
+		if err != nil {
+			return UserCreds{}, fmt.Errorf("generate vless uuid: %w", err)
+		}
+		return UserCreds{UUID: uuid, Flow: "xtls-rprx-vision"}, nil
 	case inboundTypeHysteria2:
-		return UserCreds{Password: GeneratePassword()}
+		pw, err := GeneratePassword()
+		if err != nil {
+			return UserCreds{}, fmt.Errorf("generate hysteria2 password: %w", err)
+		}
+		return UserCreds{Password: pw}, nil
 	default:
-		return UserCreds{}
+		return UserCreds{}, nil
 	}
 }
 
@@ -201,9 +240,9 @@ func resolveRealityKeys(
 	in config.Inbound,
 	persisted config.PersistedCredentials,
 	creds *InboundCredentials,
-) {
+) error {
 	if in.Type != inboundTypeVLESS || in.TLS == nil || in.TLS.Reality == nil {
-		return
+		return nil
 	}
 
 	if rk, ok := persisted.RealityKeys[in.Tag]; ok {
@@ -212,7 +251,7 @@ func resolveRealityKeys(
 			var deriveErr error
 			publicKey, deriveErr = DerivePublicKey(rk.PrivateKey)
 			if deriveErr != nil {
-				return
+				return fmt.Errorf("derive public key for inbound %q: %w", in.Tag, deriveErr)
 			}
 		}
 		creds.Reality = &RealityKeys{
@@ -220,33 +259,45 @@ func resolveRealityKeys(
 			PublicKey:  publicKey,
 			ShortID:    rk.ShortID,
 		}
-		return
+		return nil
 	}
 
-	priv, pub := GenerateX25519KeyPair()
-	shortID := GenerateShortID()
+	priv, pub, err := GenerateX25519KeyPair()
+	if err != nil {
+		return fmt.Errorf("generate reality key pair for inbound %q: %w", in.Tag, err)
+	}
+	shortID, err := GenerateShortID()
+	if err != nil {
+		return fmt.Errorf("generate reality short id for inbound %q: %w", in.Tag, err)
+	}
 	creds.Reality = &RealityKeys{
 		PrivateKey: priv,
 		PublicKey:  pub,
 		ShortID:    []string{shortID},
 	}
+	return nil
 }
 
 func resolveObfsPassword(
 	in config.Inbound,
 	persisted config.PersistedCredentials,
 	creds *InboundCredentials,
-) {
+) error {
 	if in.Type != inboundTypeHysteria2 || in.Obfs == nil {
-		return
+		return nil
 	}
 
 	if pw, ok := persisted.ObfsPasswords[in.Tag]; ok {
 		creds.ObfsPassword = pw
-		return
+		return nil
 	}
 
-	creds.ObfsPassword = GeneratePassword()
+	pw, err := GeneratePassword()
+	if err != nil {
+		return fmt.Errorf("generate obfs password for inbound %q: %w", in.Tag, err)
+	}
+	creds.ObfsPassword = pw
+	return nil
 }
 
 func resolveServerName(in config.Inbound, creds *InboundCredentials) {
@@ -286,7 +337,11 @@ func resolveCertificates(dir string, cfg config.Config, clean bool) ([]FileOutpu
 		}
 
 		if certPEM == nil || keyPEM == nil || needsRegen {
-			certPEM, keyPEM = GenerateSelfSignedCertPEM(serverName)
+			var err error
+			certPEM, keyPEM, err = GenerateSelfSignedCertPEM(serverName)
+			if err != nil {
+				return nil, fmt.Errorf("generate cert for %q: %w", serverName, err)
+			}
 		}
 
 		files = append(files,
@@ -569,7 +624,10 @@ func generateServerWithState(
 		return GenerateResult{}, nil, fmt.Errorf("load persisted credentials: %w", err)
 	}
 
-	credsMap := resolveCredentials(cfg, persisted, genCfg.Clean)
+	credsMap, err := resolveCredentials(cfg, persisted, genCfg.Clean)
+	if err != nil {
+		return GenerateResult{}, nil, fmt.Errorf("resolve credentials: %w", err)
+	}
 
 	for _, in := range cfg.Inbounds {
 		state.StoreInboundType(serverName, in.Tag, in.Type)
@@ -664,7 +722,10 @@ func regenerateServer(
 		return GenerateResult{}, fmt.Errorf("load persisted credentials: %w", err)
 	}
 
-	credsMap := resolveCredentials(cfg, persisted, genCfg.Clean)
+	credsMap, err := resolveCredentials(cfg, persisted, genCfg.Clean)
+	if err != nil {
+		return GenerateResult{}, fmt.Errorf("resolve credentials: %w", err)
+	}
 
 	for _, in := range cfg.Inbounds {
 		state.StoreInboundType(serverName, in.Tag, in.Type)

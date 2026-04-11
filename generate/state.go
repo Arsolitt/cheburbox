@@ -124,7 +124,10 @@ func (s *ServerState) EnsureUser(server string, tag string, userName string) err
 		return fmt.Errorf("server %q inbound %q has no known type", server, tag)
 	}
 
-	newCreds := generateUserCreds(inboundType)
+	newCreds, err := generateUserCreds(inboundType)
+	if err != nil {
+		return fmt.Errorf("generate credentials for user %q: %w", userName, err)
+	}
 	creds.Users[userName] = newCreds
 	s.StoreInboundCredentials(server, tag, creds)
 

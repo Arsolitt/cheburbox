@@ -27,10 +27,10 @@ const (
 // typed private key.
 //
 //nolint:revive // "generate.Generate" stutter is intentional for API clarity.
-func GenerateSelfSignedCert(serverName string) ([]byte, ed25519.PrivateKey) {
+func GenerateSelfSignedCert(serverName string) ([]byte, ed25519.PrivateKey, error) {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		panic("generate ed25519 key: " + err.Error())
+		return nil, nil, fmt.Errorf("generate ed25519 key: %w", err)
 	}
 
 	template := &x509.Certificate{
@@ -44,10 +44,10 @@ func GenerateSelfSignedCert(serverName string) ([]byte, ed25519.PrivateKey) {
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, template, priv.Public(), priv)
 	if err != nil {
-		panic("create certificate: " + err.Error())
+		return nil, nil, fmt.Errorf("create certificate: %w", err)
 	}
 
-	return certDER, priv
+	return certDER, priv, nil
 }
 
 // GenerateSelfSignedCertPEM creates a self-signed certificate and private key
@@ -55,18 +55,21 @@ func GenerateSelfSignedCert(serverName string) ([]byte, ed25519.PrivateKey) {
 // private key.
 //
 //nolint:revive // "generate.Generate" stutter is intentional for API clarity.
-func GenerateSelfSignedCertPEM(serverName string) ([]byte, []byte) {
-	certDER, priv := GenerateSelfSignedCert(serverName)
+func GenerateSelfSignedCertPEM(serverName string) ([]byte, []byte, error) {
+	certDER, priv, err := GenerateSelfSignedCert(serverName)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	keyDER, err := x509.MarshalPKCS8PrivateKey(priv)
 	if err != nil {
-		panic("marshal private key: " + err.Error())
+		return nil, nil, fmt.Errorf("marshal private key: %w", err)
 	}
 
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 
-	return certPEM, keyPEM
+	return certPEM, keyPEM, nil
 }
 
 // CertNeedsRegeneration checks whether a certificate needs to be regenerated

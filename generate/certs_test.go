@@ -10,7 +10,10 @@ import (
 func TestGenerateSelfSignedCert(t *testing.T) {
 	t.Parallel()
 
-	cert, key := GenerateSelfSignedCert("example.com")
+	cert, key, err := GenerateSelfSignedCert("example.com")
+	if err != nil {
+		t.Fatalf("GenerateSelfSignedCert: %v", err)
+	}
 	if cert == nil {
 		t.Fatal("expected non-nil cert")
 	}
@@ -37,7 +40,10 @@ func TestGenerateSelfSignedCert(t *testing.T) {
 func TestGenerateSelfSignedCertPEM(t *testing.T) {
 	t.Parallel()
 
-	certPEM, keyPEM := GenerateSelfSignedCertPEM("test.example.com")
+	certPEM, keyPEM, err := GenerateSelfSignedCertPEM("test.example.com")
+	if err != nil {
+		t.Fatalf("GenerateSelfSignedCertPEM: %v", err)
+	}
 
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
@@ -63,7 +69,10 @@ func TestWriteOrReadCert(t *testing.T) {
 	certPath := filepath.Join(dir, "cert_test.pem")
 	keyPath := filepath.Join(dir, "key_test.pem")
 
-	certPEM, keyPEM := GenerateSelfSignedCertPEM("write.example.com")
+	certPEM, keyPEM, err := GenerateSelfSignedCertPEM("write.example.com")
+	if err != nil {
+		t.Fatalf("GenerateSelfSignedCertPEM: %v", err)
+	}
 	if err := WriteCertFiles(certPath, keyPath, certPEM, keyPEM); err != nil {
 		t.Fatalf("write cert files: %v", err)
 	}
@@ -99,7 +108,10 @@ func TestReadCertFilesMissing(t *testing.T) {
 func TestCertNeedsRegeneration(t *testing.T) {
 	t.Parallel()
 
-	certPEM, _ := GenerateSelfSignedCertPEM("original.example.com")
+	certPEM, _, err := GenerateSelfSignedCertPEM("original.example.com")
+	if err != nil {
+		t.Fatalf("GenerateSelfSignedCertPEM: %v", err)
+	}
 	block, _ := pem.Decode(certPEM)
 	parsed, _ := x509.ParseCertificate(block.Bytes)
 
@@ -114,8 +126,11 @@ func TestCertNeedsRegeneration(t *testing.T) {
 func TestWriteOrReadCertNonexistentDir(t *testing.T) {
 	t.Parallel()
 
-	certPEM, keyPEM := GenerateSelfSignedCertPEM("dir.example.com")
-	err := WriteCertFiles("/nonexistent/path/cert.pem", "/nonexistent/path/key.pem", certPEM, keyPEM)
+	certPEM, keyPEM, err := GenerateSelfSignedCertPEM("dir.example.com")
+	if err != nil {
+		t.Fatalf("GenerateSelfSignedCertPEM: %v", err)
+	}
+	err = WriteCertFiles("/nonexistent/path/cert.pem", "/nonexistent/path/key.pem", certPEM, keyPEM)
 	if err == nil {
 		t.Fatal("expected error for nonexistent directory")
 	}
@@ -124,7 +139,10 @@ func TestWriteOrReadCertNonexistentDir(t *testing.T) {
 func TestComputePinSHA256(t *testing.T) {
 	t.Parallel()
 
-	certPEM, _ := GenerateSelfSignedCertPEM("test.example.com")
+	certPEM, _, err := GenerateSelfSignedCertPEM("test.example.com")
+	if err != nil {
+		t.Fatalf("GenerateSelfSignedCertPEM: %v", err)
+	}
 	pin, err := computePinSHA256(certPEM)
 	if err != nil {
 		t.Fatalf("computePinSHA256: %v", err)

@@ -210,7 +210,10 @@ func TestGenerateServerWithHysteria2Certs(t *testing.T) {
 func TestGenerateUserCredsDefaultFlow(t *testing.T) {
 	t.Parallel()
 
-	creds := generateUserCreds("vless")
+	creds, err := generateUserCreds("vless")
+	if err != nil {
+		t.Fatalf("generateUserCreds: %v", err)
+	}
 	if creds.UUID == "" {
 		t.Error("expected non-empty UUID for vless")
 	}
@@ -251,7 +254,10 @@ func TestResolveCredentials(t *testing.T) {
 		"alice": {UUID: "persisted-uuid"},
 	}
 
-	credsMap := resolveCredentials(cfg, persisted, false)
+	credsMap, err := resolveCredentials(cfg, persisted, false)
+	if err != nil {
+		t.Fatalf("resolveCredentials: %v", err)
+	}
 
 	vlessCreds := credsMap["vless-in"]
 	if vlessCreds.Users["alice"].UUID != "persisted-uuid" {
@@ -307,7 +313,10 @@ func TestResolveCredentialsWithPersistedReality(t *testing.T) {
 		"alice": {UUID: "persisted-uuid"},
 	}
 
-	credsMap := resolveCredentials(cfg, persisted, false)
+	credsMap, err := resolveCredentials(cfg, persisted, false)
+	if err != nil {
+		t.Fatalf("resolveCredentials: %v", err)
+	}
 	vlessCreds := credsMap["vless-in"]
 
 	if vlessCreds.Reality.PrivateKey != "persisted-priv" {
@@ -339,7 +348,10 @@ func TestResolveCredentialsDerivePublicKeyFromPrivate(t *testing.T) {
 		},
 	}
 
-	priv, expectedPub := GenerateX25519KeyPair()
+	priv, expectedPub, err := GenerateX25519KeyPair()
+	if err != nil {
+		t.Fatalf("GenerateX25519KeyPair: %v", err)
+	}
 
 	persisted := config.EmptyPersistedCredentials()
 	persisted.RealityKeys["vless-in"] = config.RealityKeyPair{
@@ -351,7 +363,10 @@ func TestResolveCredentialsDerivePublicKeyFromPrivate(t *testing.T) {
 		"alice": {UUID: "persisted-uuid"},
 	}
 
-	credsMap := resolveCredentials(cfg, persisted, false)
+	credsMap, err := resolveCredentials(cfg, persisted, false)
+	if err != nil {
+		t.Fatalf("resolveCredentials: %v", err)
+	}
 	vlessCreds := credsMap["vless-in"]
 
 	if vlessCreds.Reality.PublicKey != expectedPub {
@@ -379,7 +394,10 @@ func TestResolveCredentialsWithPersistedObfs(t *testing.T) {
 		"alice": {Password: "persisted-pw"},
 	}
 
-	credsMap := resolveCredentials(cfg, persisted, false)
+	credsMap, err := resolveCredentials(cfg, persisted, false)
+	if err != nil {
+		t.Fatalf("resolveCredentials: %v", err)
+	}
 	hy2Creds := credsMap["hy2-in"]
 
 	if hy2Creds.ObfsPassword != "persisted-obfs-pw" {
@@ -407,7 +425,10 @@ func TestAddBoilerplate(t *testing.T) {
 func TestParseCertPEM(t *testing.T) {
 	t.Parallel()
 
-	certPEM, _ := GenerateSelfSignedCertPEM("test.example.com")
+	certPEM, _, err := GenerateSelfSignedCertPEM("test.example.com")
+	if err != nil {
+		t.Fatalf("GenerateSelfSignedCertPEM: %v", err)
+	}
 
 	cert, err := parseCertPEM(certPEM)
 	if err != nil {

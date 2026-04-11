@@ -16,48 +16,48 @@ const passwordBytes = 24
 // GenerateUUID returns a random UUIDv4 string.
 //
 //nolint:revive // "generate.Generate" stutter is intentional for API clarity.
-func GenerateUUID() string {
+func GenerateUUID() (string, error) {
 	id, err := uuid.NewV4()
 	if err != nil {
-		panic("generate uuid: " + err.Error())
+		return "", fmt.Errorf("generate uuid: %w", err)
 	}
-	return id.String()
+	return id.String(), nil
 }
 
 // GeneratePassword returns a base64-encoded 24-byte random password.
 //
 //nolint:revive // "generate.Generate" stutter is intentional for API clarity.
-func GeneratePassword() string {
+func GeneratePassword() (string, error) {
 	b := make([]byte, passwordBytes)
 	if _, err := rand.Read(b); err != nil {
-		panic("generate password: " + err.Error())
+		return "", fmt.Errorf("generate password: %w", err)
 	}
-	return base64.StdEncoding.EncodeToString(b)
+	return base64.StdEncoding.EncodeToString(b), nil
 }
 
 // GenerateX25519KeyPair generates an X25519 key pair and returns
 // the private and public keys as base64-encoded strings.
 //
 //nolint:revive // "generate.Generate" stutter is intentional for API clarity.
-func GenerateX25519KeyPair() (string, string) {
+func GenerateX25519KeyPair() (string, string, error) {
 	key, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
-		panic("generate x25519 key: " + err.Error())
+		return "", "", fmt.Errorf("generate x25519 key: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(key.Bytes()),
-		base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes())
+		base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes()), nil
 }
 
 // GenerateShortID returns a base64-encoded 8-byte random short identifier.
 //
 //nolint:revive // "generate.Generate" stutter is intentional for API clarity.
-func GenerateShortID() string {
+func GenerateShortID() (string, error) {
 	const n = 8
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
-		panic("generate short id: " + err.Error())
+		return "", fmt.Errorf("generate short id: %w", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(b)
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // DerivePublicKey derives the X25519 public key from a base64-encoded private key.

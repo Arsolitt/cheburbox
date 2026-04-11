@@ -10,7 +10,10 @@ import (
 func TestGenerateUUID(t *testing.T) {
 	t.Parallel()
 
-	id := GenerateUUID()
+	id, err := GenerateUUID()
+	if err != nil {
+		t.Fatalf("GenerateUUID: %v", err)
+	}
 	if id == "" {
 		t.Fatal("expected non-empty UUID")
 	}
@@ -23,8 +26,14 @@ func TestGenerateUUID(t *testing.T) {
 func TestGenerateUUIDUnique(t *testing.T) {
 	t.Parallel()
 
-	a := GenerateUUID()
-	b := GenerateUUID()
+	a, err := GenerateUUID()
+	if err != nil {
+		t.Fatalf("GenerateUUID: %v", err)
+	}
+	b, err := GenerateUUID()
+	if err != nil {
+		t.Fatalf("GenerateUUID: %v", err)
+	}
 	if a == b {
 		t.Fatalf("two UUIDs should not be equal: %q", a)
 	}
@@ -33,7 +42,10 @@ func TestGenerateUUIDUnique(t *testing.T) {
 func TestGeneratePassword(t *testing.T) {
 	t.Parallel()
 
-	pw := GeneratePassword()
+	pw, err := GeneratePassword()
+	if err != nil {
+		t.Fatalf("GeneratePassword: %v", err)
+	}
 	decoded, err := base64.StdEncoding.DecodeString(pw)
 	if err != nil {
 		t.Fatalf("base64 decode: %v", err)
@@ -46,8 +58,14 @@ func TestGeneratePassword(t *testing.T) {
 func TestGeneratePasswordUnique(t *testing.T) {
 	t.Parallel()
 
-	a := GeneratePassword()
-	b := GeneratePassword()
+	a, err := GeneratePassword()
+	if err != nil {
+		t.Fatalf("GeneratePassword: %v", err)
+	}
+	b, err := GeneratePassword()
+	if err != nil {
+		t.Fatalf("GeneratePassword: %v", err)
+	}
 	if a == b {
 		t.Fatalf("two passwords should not be equal: %q", a)
 	}
@@ -56,7 +74,10 @@ func TestGeneratePasswordUnique(t *testing.T) {
 func TestGenerateX25519KeyPair(t *testing.T) {
 	t.Parallel()
 
-	priv, pub := GenerateX25519KeyPair()
+	priv, pub, err := GenerateX25519KeyPair()
+	if err != nil {
+		t.Fatalf("GenerateX25519KeyPair: %v", err)
+	}
 	if priv == "" {
 		t.Fatal("expected non-empty private key")
 	}
@@ -82,7 +103,10 @@ func TestGenerateX25519KeyPair(t *testing.T) {
 func TestGenerateX25519KeyPairValid(t *testing.T) {
 	t.Parallel()
 
-	priv, pub := GenerateX25519KeyPair()
+	priv, pub, err := GenerateX25519KeyPair()
+	if err != nil {
+		t.Fatalf("GenerateX25519KeyPair: %v", err)
+	}
 	privBytes, _ := base64.RawURLEncoding.DecodeString(priv)
 	pubBytes, _ := base64.RawURLEncoding.DecodeString(pub)
 
@@ -99,7 +123,10 @@ func TestGenerateX25519KeyPairValid(t *testing.T) {
 func TestGenerateShortID(t *testing.T) {
 	t.Parallel()
 
-	id := GenerateShortID()
+	id, err := GenerateShortID()
+	if err != nil {
+		t.Fatalf("GenerateShortID: %v", err)
+	}
 	decoded, err := base64.RawURLEncoding.DecodeString(id)
 	if err != nil {
 		t.Fatalf("base64 decode: %v", err)
@@ -112,7 +139,10 @@ func TestGenerateShortID(t *testing.T) {
 func TestDerivePublicKey(t *testing.T) {
 	t.Parallel()
 
-	priv, expectedPub := GenerateX25519KeyPair()
+	priv, expectedPub, err := GenerateX25519KeyPair()
+	if err != nil {
+		t.Fatalf("GenerateX25519KeyPair: %v", err)
+	}
 
 	gotPub, err := DerivePublicKey(priv)
 	if err != nil {
