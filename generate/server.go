@@ -278,10 +278,14 @@ func resolveCertificates(dir string, cfg config.Config, clean bool) ([]FileOutpu
 	return files, nil
 }
 
-// addBoilerplate sets default experimental options on the sing-box configuration.
-func addBoilerplate(opts *option.Options) {
-	opts.Experimental = &option.ExperimentalOptions{
-		CacheFile: &option.CacheFileOptions{Enabled: true},
+// addBoilerplate sets experimental options on the sing-box configuration.
+// Cache file is disabled by default and must be explicitly enabled via config.
+func addBoilerplate(opts *option.Options, cfg config.Config) {
+	if cfg.Experimental != nil && cfg.Experimental.CacheFile != nil && cfg.Experimental.CacheFile.Enabled != nil &&
+		*cfg.Experimental.CacheFile.Enabled {
+		opts.Experimental = &option.ExperimentalOptions{
+			CacheFile: &option.CacheFileOptions{Enabled: true},
+		}
 	}
 }
 
@@ -605,7 +609,7 @@ func generateServerWithState(
 		opts.Route.AutoDetectInterface = true
 	}
 
-	addBoilerplate(&opts)
+	addBoilerplate(&opts, cfg)
 
 	configJSON, err := marshalOptions(&opts)
 	if err != nil {

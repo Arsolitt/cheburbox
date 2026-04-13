@@ -149,6 +149,39 @@ func TestGenerateServerWithBoilerplate(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 
+	if _, ok := parsed["experimental"]; ok {
+		t.Error("experimental section should not be present when cache_file is not explicitly enabled")
+	}
+}
+
+func TestGenerateServerWithCacheFileEnabled(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	enabled := true
+	cfg := config.Config{
+		Version: 1,
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Experimental: &config.Experimental{
+			CacheFile: &config.CacheFileConfig{Enabled: &enabled},
+		},
+	}
+
+	result, err := GenerateServer(dir, cfg, GenerateConfig{})
+	if err != nil {
+		t.Fatalf("GenerateServer: %v", err)
+	}
+
+	configFile := findFile(result.Files, "config.json")
+
+	var parsed map[string]any
+	if err := json.Unmarshal(configFile.Content, &parsed); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
 	exp, ok := parsed["experimental"].(map[string]any)
 	if !ok {
 		t.Fatal("expected experimental section")
@@ -449,18 +482,48 @@ func TestResolveCredentialsWithPersistedObfs(t *testing.T) {
 func TestAddBoilerplate(t *testing.T) {
 	t.Parallel()
 
-	opts := &option.Options{}
-	addBoilerplate(opts)
+	t.Run("default disabled", func(t *testing.T) {
+		t.Parallel()
+		opts := &option.Options{}
+		addBoilerplate(opts, config.Config{})
+		if opts.Experimental != nil {
+			t.Error("Experimental should be nil when cache_file is not enabled")
+		}
+	})
 
-	if opts.Experimental == nil {
-		t.Fatal("expected Experimental to be set")
-	}
-	if opts.Experimental.CacheFile == nil {
-		t.Fatal("expected CacheFile to be set")
-	}
-	if !opts.Experimental.CacheFile.Enabled {
-		t.Error("CacheFile.Enabled should be true")
-	}
+	t.Run("explicitly enabled", func(t *testing.T) {
+		t.Parallel()
+		enabled := true
+		opts := &option.Options{}
+		addBoilerplate(opts, config.Config{
+			Experimental: &config.Experimental{
+				CacheFile: &config.CacheFileConfig{Enabled: &enabled},
+			},
+		})
+		if opts.Experimental == nil {
+			t.Fatal("expected Experimental to be set")
+		}
+		if opts.Experimental.CacheFile == nil {
+			t.Fatal("expected CacheFile to be set")
+		}
+		if !opts.Experimental.CacheFile.Enabled {
+			t.Error("CacheFile.Enabled should be true")
+		}
+	})
+
+	t.Run("explicitly disabled", func(t *testing.T) {
+		t.Parallel()
+		disabled := false
+		opts := &option.Options{}
+		addBoilerplate(opts, config.Config{
+			Experimental: &config.Experimental{
+				CacheFile: &config.CacheFileConfig{Enabled: &disabled},
+			},
+		})
+		if opts.Experimental != nil {
+			t.Error("Experimental should be nil when cache_file is explicitly disabled")
+		}
+	})
 }
 
 func TestParseCertPEM(t *testing.T) {

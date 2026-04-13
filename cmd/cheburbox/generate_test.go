@@ -139,7 +139,7 @@ func TestGenerateWritesConfig(t *testing.T) {
 		t.Fatalf("parse config.json: %v", err)
 	}
 
-	for _, section := range []string{"dns", "route", "inbounds", "outbounds", "experimental"} {
+	for _, section := range []string{"dns", "route", "inbounds", "outbounds"} {
 		if parsed[section] == nil {
 			t.Errorf("expected %q section in generated config.json", section)
 		}

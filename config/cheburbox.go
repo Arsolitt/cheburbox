@@ -11,13 +11,24 @@ const CurrentSchemaVersion = 1
 //
 //nolint:govet // fieldalignment: 8-byte savings negligible for a config struct loaded once.
 type Config struct {
-	DNS       DNS             `json:"dns"`
-	Log       json.RawMessage `json:"log,omitempty"`
-	Inbounds  []Inbound       `json:"inbounds,omitempty"`
-	Outbounds []Outbound      `json:"outbounds,omitempty"`
-	Endpoint  string          `json:"endpoint,omitempty"`
-	Version   int             `json:"version"`
-	Route     *Route          `json:"route,omitempty"`
+	DNS          DNS             `json:"dns"`
+	Log          json.RawMessage `json:"log,omitempty"`
+	Inbounds     []Inbound       `json:"inbounds,omitempty"`
+	Outbounds    []Outbound      `json:"outbounds,omitempty"`
+	Endpoint     string          `json:"endpoint,omitempty"`
+	Version      int             `json:"version"`
+	Route        *Route          `json:"route,omitempty"`
+	Experimental *Experimental   `json:"experimental,omitempty"`
+}
+
+// Experimental holds optional experimental sing-box settings.
+type Experimental struct {
+	CacheFile *CacheFileConfig `json:"cache_file,omitempty"`
+}
+
+// CacheFileConfig controls the sing-box cache_file feature.
+type CacheFileConfig struct {
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // DNS holds the DNS configuration section.
