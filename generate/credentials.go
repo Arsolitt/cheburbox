@@ -6,6 +6,7 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/gofrs/uuid/v5"
@@ -48,7 +49,7 @@ func GenerateX25519KeyPair() (string, string, error) {
 		base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes()), nil
 }
 
-// GenerateShortID returns a base64-encoded 8-byte random short identifier.
+// GenerateShortID returns a hex-encoded 8-byte random short identifier.
 //
 //nolint:revive // "generate.Generate" stutter is intentional for API clarity.
 func GenerateShortID() (string, error) {
@@ -57,7 +58,7 @@ func GenerateShortID() (string, error) {
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generate short id: %w", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
+	return hex.EncodeToString(b), nil
 }
 
 // DerivePublicKey derives the X25519 public key from a base64-encoded private key.

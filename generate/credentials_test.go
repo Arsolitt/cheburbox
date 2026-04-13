@@ -3,6 +3,7 @@ package generate
 import (
 	"crypto/ecdh"
 	"encoding/base64"
+	"encoding/hex"
 	"strings"
 	"testing"
 )
@@ -127,12 +128,15 @@ func TestGenerateShortID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateShortID: %v", err)
 	}
-	decoded, err := base64.RawURLEncoding.DecodeString(id)
+	decoded, err := hex.DecodeString(id)
 	if err != nil {
-		t.Fatalf("base64 decode: %v", err)
+		t.Fatalf("hex decode: %v", err)
 	}
-	if len(decoded) < 1 || len(decoded) > 16 {
-		t.Fatalf("expected 1-16 bytes, got %d", len(decoded))
+	if len(decoded) != 8 {
+		t.Fatalf("expected 8 bytes, got %d", len(decoded))
+	}
+	if len(id) != 16 {
+		t.Fatalf("expected 16 hex chars, got %d", len(id))
 	}
 }
 
