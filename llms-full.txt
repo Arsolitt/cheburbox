@@ -100,6 +100,8 @@ Each server directory contains a `cheburbox.json` file with the following top-le
 
 > `route`: Route (optional) — Routing configuration including rule-sets and rules. See [Routing](/routing) for details.
 
+> `experimental`: Experimental (optional) — Experimental sing-box settings. See [Config Reference](/config-reference) for details.
+
 ### Minimal Server Configuration
 
 The simplest possible server only needs a version and DNS configuration:
@@ -146,6 +148,7 @@ Cheburbox is a local generation tool only. It does not deploy configurations to 
 - See [Quick Start](/quick-start) for a guided walkthrough of creating your first project.
 - See [Project Structure](/project-structure) for the recommended directory layout.
 - See [CLI Reference](/cli-reference) for all available commands and flags.
+---
 ---
 url: /installation
 ---
@@ -261,6 +264,7 @@ go test -v -run TestFunctionName ./path/to/package
 
 - See [Quick Start](/quick-start) to create your first cheburbox project.
 - See [CLI Reference](/cli-reference) for all available commands and flags.
+---
 ---
 url: /quick-start
 ---
@@ -443,6 +447,7 @@ The `listen_port` field on inbounds accepts values from `0` to `65535`. A value 
 - See [Config Reference](/config-reference) for the full schema documentation.
 - See [Project Structure](/project-structure) to learn about multi-server layouts, the `lib/` directory, and Jsonnet support.
 - See [CLI Reference](/cli-reference) for all available commands and flags.
+---
 ---
 url: /project-structure
 ---
@@ -709,306 +714,264 @@ my-project/
 - See [Rule Sets](/rule-sets) for details on authoring and compiling custom rule-sets.
 - See [CLI Reference](/cli-reference) for all commands and flags that operate on the project structure.
 ---
+---
 url: /config-reference
 ---
 # Configuration Reference
 
-Complete field-by-field reference for `cheburbox.json`. See [Quick Start](/quick-start) for a minimal working example.
+Reference documentation for the `cheburbox.json` schema. Each server directory contains one `cheburbox.json` (or `.cheburbox.jsonnet` for templated configs).
 
-## Top-Level Config
+## Top-Level Schema
 
-> `version`: `int` — Required. Must be `1`. Values of `0` or any other number are rejected.
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `version` | `int` | — | Yes | Schema version. Must be exactly `1`. |
+| `dns` | `DNS` | — | Yes | DNS configuration. At least one server required. |
+| `endpoint` | `string` | — | Conditional | Public endpoint address (IP or IP:port) of the server. Required when any inbounds are defined. Client-only servers (outbounds only) do not need an endpoint. |
+| `inbounds` | `[]Inbound` | `[]` | No | Inbound configurations. Supported types: `tun`, `vless`, `hysteria2`. |
+| `outbounds` | `[]Outbound` | `[]` | No | Outbound configurations. Supported types: `direct`, `urltest`, `selector`, `vless` (cross-server), `hysteria2` (cross-server). |
+| `route` | `Route` | — | No | Routing configuration. When omitted, `auto_detect_interface` is automatically set to `true` in generated output. |
+| `log` | `object` | — | No | Sing-box log options as raw JSON. Passed through to sing-box unvalidated. |
+| `experimental` | `Experimental` | — | No | Experimental sing-box settings. |
 
-> `endpoint`: `string` — Required when `inbounds` is non-empty. The public IP address or hostname of this server, used to construct outbound connection strings in generated client configs.
+## DNS Section
 
-> `dns`: `DNS` — Required. See [DNS](#dns) section below.
-
-> `log`: `json.RawMessage` — Optional. Passed through verbatim to sing-box. Common keys include `level` and `timestamp`.
-
-> `inbounds`: `[]Inbound` — Optional. List of inbound listeners. See [Inbounds](/inbounds) for details.
-
-> `outbounds`: `[]Outbound` — Optional. List of outbound connections. See [Outbounds](/outbounds) for details.
-
-> `route`: `*Route` — Optional. Routing rules. See [Routing](/routing) for details.
-
-```json
-{
-  "version": 1,
-  "endpoint": "138.124.181.194",
-  "dns": {
-    "servers": [{"type": "local", "tag": "dns-local"}],
-    "final": "dns-local"
-  }
-}
-```
-
-::: tip
-Servers with no inbounds (outbound-only) do not require `endpoint`.
-:::
-
-## DNS
-
-> `servers`: `[]DNSServer` — Required. At least one server must be defined.
-
-> `final`: `*string` — Optional. Tag of the default DNS server for fallback resolution.
-
-> `strategy`: `*string` — Optional. DNS resolution strategy (e.g., `"prefer_ipv4"`).
-
-> `cache_capacity`: `*uint32` — Optional. DNS cache capacity.
-
-> `rules`: `json.RawMessage` — Optional. Passed through verbatim to sing-box. See [DNS](/dns) for details.
-
-```json
-{
-  "dns": {
-    "servers": [
-      {"type": "local", "tag": "dns-local"},
-      {"type": "tls", "tag": "dns-remote", "server": "8.8.8.8", "server_port": 853, "detour": "direct"}
-    ],
-    "final": "dns-remote",
-    "strategy": "prefer_ipv4"
-  }
-}
-```
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `dns.servers` | `[]DNSServer` | — | Yes | DNS server entries. At least one required. |
+| `dns.final` | `string` | — | No | Default DNS server tag for fallback resolution. |
+| `dns.strategy` | `string` | `"as_is"` | No | Domain resolution strategy: `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only`, `as_is`. |
+| `dns.cache_capacity` | `uint32` | — | No | DNS cache capacity. |
+| `dns.rules` | `object` | — | No | DNS rules as raw sing-box JSON. Passed through unvalidated; content validated only by `sing-box check`. |
 
 ### DNSServer
 
-> `type`: `string` — Required. DNS server type (e.g., `"local"`, `"tls"`).
-
-> `tag`: `string` — Required. Unique identifier referenced by DNS rules and the `final` field.
-
-> `server`: `string` — Optional. DNS server address (e.g., `"8.8.8.8"`).
-
-> `detour`: `string` — Optional. Outbound tag to route DNS queries through.
-
-> `server_port`: `int` — Optional. DNS server port (e.g., `853` for DoT).
-
-## Inbound
-
-See [Inbounds](/inbounds) for the full inbound reference. Top-level inbound fields:
-
-> `type`: `string` — Required. One of `"vless"`, `"hysteria2"`, or `"tun"`.
-
-> `tag`: `string` — Required. Unique identifier for this inbound.
-
-> `listen_port`: `int` — Optional. Port to listen on. Range: `0`–`65535`. Value `0` is valid (used for TUN).
-
-> `listen`: `string` — Optional. Listen address (e.g., `"::"` for all IPv6 interfaces).
-
-> `users`: `[]InboundUser` — Optional. List of user declarations.
-
-> `tls`: `*InboundTLS` — Optional. TLS configuration.
-
-> `obfs`: `*ObfsConfig` — Optional. Obfuscation configuration (Hysteria2 only).
-
-> `masquerade`: `*MasqueradeConfig` — Optional. HTTP masquerade configuration (Hysteria2 only).
-
-> `stack`: `string` — Optional. Network stack (TUN only, e.g., `"system"`).
-
-> `interface_name`: `string` — Optional. TUN interface name.
-
-> `address`: `[]string` — Optional. CIDR addresses for the TUN interface (e.g., `"172.19.0.1/30"`).
-
-> `exclude_interface`: `[]string` — Optional. Interfaces to exclude from TUN routing.
-
-> `route_exclude_address`: `[]string` — Optional. CIDR prefixes excluded from TUN auto-route.
-
-> `down_mbps`: `int` — Optional. Download bandwidth limit in Mbps (Hysteria2 only).
-
-> `up_mbps`: `int` — Optional. Upload bandwidth limit in Mbps (Hysteria2 only).
-
-> `mtu`: `int` — Optional. MTU value for TUN interface.
-
-> `auto_route`: `bool` — Optional. Enable automatic routing for TUN interface.
-
-### InboundUser
-
-> `name`: `string` — Required. User name (used as identifier in generated configs).
-
-> `flow`: `string` — Optional. VLESS flow control string (e.g., `"xtls-rprx-vision"`). Only applies to VLESS inbounds.
-
-### InboundTLS
-
-> `server_name`: `string` — Optional. TLS server name / SNI. For Hysteria2, binds to certificate SAN and determines cert file paths.
-
-> `alpn`: `[]string` — Optional. TLS ALPN values (e.g., `["h3"]`).
-
-> `reality`: `*RealityConfig` — Optional. Reality TLS configuration (VLESS only).
-
-### RealityConfig
-
-> `handshake`: `*RealityHandshake` — Required when `reality` is set. Handshake server details.
-
-> `short_id`: `[]string` — Optional. Reality short IDs. Auto-generated (base64-encoded 8 bytes) if not provided.
-
-### RealityHandshake
-
-> `server`: `string` — Required. Handshake server hostname or IP.
-
-> `server_port`: `int` — Required. Handshake server port.
-
-### ObfsConfig
-
-> `type`: `string` — Required. Obfuscation type (e.g., `"salamander"`).
-
-> `password`: `string` — Optional. Obfuscation password. Auto-generated (24-byte base64) if empty.
-
-### MasqueradeConfig
-
-> `type`: `string` — Required. Must be `"proxy"`.
-
-> `url`: `string` — Optional. Proxy target URL for masquerade.
-
-> `rewrite_host`: `bool` — Optional. Whether to rewrite the Host header to the proxy URL host.
-
-## Outbound
-
-See [Outbounds](/outbounds) for the full outbound reference.
-
-> `type`: `string` — Required. One of `"direct"`, `"vless"`, `"hysteria2"`, `"urltest"`, or `"selector"`.
-
-> `tag`: `string` — Required. Unique identifier for this outbound.
-
-> `server`: `string` — Optional. Target server directory name (for cross-server outbounds).
-
-> `inbound`: `string` — Optional. Target inbound tag on the remote server (for cross-server outbounds).
-
-> `user`: `string` — Optional. Target user name on the remote server.
-
-> `flow`: `string` — Optional. VLESS flow control string for VLESS outbounds.
-
-> `endpoint`: `string` — Optional. Override endpoint address for this outbound.
-
-> `url`: `string` — Optional. Health check URL for `urltest` outbounds.
-
-> `interval`: `string` — Optional. Health check interval for `urltest` outbounds (e.g., `"3m"`).
-
-> `idle_timeout`: `string` — Optional. Idle timeout for urltest outbounds as a Go duration string (e.g., `"5m"`).
-
-> `tolerance`: `uint16` — Optional. Tolerance in milliseconds for urltest outbound selection.
-
-> `interrupt_exist_connections`: `bool` — Optional. Whether to interrupt existing connections when switching urltest outbound.
-
-> `domain_resolver`: `string` — Optional. DNS resolver tag for domain resolution.
-
-> `outbounds`: `[]string` — Optional. List of outbound tags to test or select from (for `urltest` and `selector` types).
-
-## Route
-
-See [Routing](/routing) for the full routing reference.
-
-> `final`: `string` — Optional. Default outbound tag for unmatched traffic.
-
-> `default_domain_resolver`: `string` — Optional. Default DNS resolver for domain lookups.
-
-> `rule_sets`: `json.RawMessage` — Optional. Rule set definitions passed through to sing-box.
-
-> `custom_rule_sets`: `[]string` — Optional. List of custom rule set names.
-
-> `rules`: `json.RawMessage` — Optional. Routing rules passed through to sing-box.
-
-> `auto_detect_interface`: `bool` — Optional. Automatically detect the default network interface.
-
-## Validation Rules
-
-The following constraints are enforced by the `Validate` function at generation time:
-
-| Rule | Error message |
-|---|---|
-| `version` must equal `1` | `unsupported version N (want 1)` |
-| `dns.servers` must have at least one entry | `dns section is required: at least one dns server must be defined` |
-| `endpoint` is required when `inbounds` is non-empty | `endpoint is required when inbounds are defined` |
-| `listen_port` must be `0`–`65535` | `inbound "tag": listen_port N is out of range (0-65535)` |
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `type` | `string` | — | Yes | DNS server type (e.g. `tls`, `udp`, `https`). |
+| `tag` | `string` | — | Yes | Unique DNS server identifier. |
+| `server` | `string` | — | No | DNS server address. |
+| `detour` | `string` | — | No | Outbound tag to route DNS queries through. |
+| `server_port` | `int` | — | No | DNS server port. |
+
+## Route Section
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `route.final` | `string` | — | No | Default outbound tag for unmatched traffic. |
+| `route.default_domain_resolver` | `string` | — | No | DNS server tag for domain resolution on outbounds. |
+| `route.rule_sets` | `object` | — | No | Remote rule-set definitions as raw sing-box JSON. Passed through unvalidated. |
+| `route.custom_rule_sets` | `[]string` | — | No | Names of local rule-sets to compile from JSON sources in the server directory. Each name maps to `<name>.json` -> `rule-set/<name>.srs`. |
+| `route.rules` | `object` | — | No | Route rules as raw sing-box JSON. Passed through unvalidated; content validated only by `sing-box check`. |
+| `route.auto_detect_interface` | `bool` | `false` | No | Auto-detect network interface. Automatically set to `true` when no route section is defined. |
+
+## Experimental Section
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `experimental.cache_file.enabled` | `bool` | `false` | No | Enable sing-box `cache_file` feature. Disabled by default; must be explicitly set to `true`. Setting it to `false` suppresses the section from generated output entirely. |
+
+## Servers Array
+
+The project root contains one subdirectory per server. Each subdirectory is discovered automatically (one level deep only; nested directories are ignored).
 
 ::: warning
-A `version` of `0` is treated as missing and rejected with `"missing or zero version field"`.
+Deleting a server's `config.json` causes all credentials to be regenerated on the next run, breaking existing clients.
 :::
+
+### Credential Persistence
+
+Credentials (UUIDs, passwords, x25519 keys, obfs passwords, certificates) are read from the previously generated `config.json` in each server directory. If `config.json` does not exist (first run), all credentials are generated fresh.
+
+By default, users present in the previous `config.json` but not declared in `cheburbox.json` are preserved. Use `--full-reset` or `--orphan` flags to control this behavior.
+
+### `--full-reset` and `--orphan` Flags
+
+The `--clean` flag no longer exists. It has been replaced by two mutually exclusive flags:
+
+| Flag | Behavior |
+| --- | --- |
+| `--full-reset` | Regenerates ALL credentials (UUIDs, passwords, Reality keys, obfs passwords, certificates). Removes undeclared users. |
+| `--orphan` | Only removes users not referenced by any cross-server outbound. Preserves all other credentials. |
+
+These flags are mutually exclusive and cannot be used together.
+
+## Cross-Server References
+
+When server A has an outbound referencing server B's inbound, cheburbox resolves credentials from server B's state. This may trigger regeneration of server B's config if a user needs to be provisioned.
+
+Only `vless` and `hysteria2` outbound types support cross-server references (the `server` and `inbound` fields). Other outbound types (`direct`, `urltest`, `selector`) are local-only.
+
+## Short ID Format
+
+Reality `short_id` values are hex-encoded: 8 random bytes encoded as 16 hexadecimal characters. Previously base64 was used; hex is now the standard.
+
+## Passthrough Fields
+
+Fields typed as raw JSON (`log`, `dns.rules`, `route.rules`, `route.rule_sets`) are passed directly to sing-box's registry-aware unmarshaler without cheburbox-level validation. Invalid values are only caught during Phase 2 (`sing-box check`) or at runtime.
+
+## File Discovery
+
+- `.cheburbox.jsonnet` takes precedence over `cheburbox.json`. If both exist, only the jsonnet file is used.
+- Server directories must be direct children of the project root. Nested directories are not discovered.
+- The `--jpath` flag defaults to `lib/` (relative to project root) for jsonnet library resolution.
+---
 ---
 url: /inbounds
 ---
 # Inbounds
 
-Inbounds define how the sing-box instance accepts connections. Cheburbox supports three inbound types: VLESS, Hysteria2, and TUN. See [Configuration Reference](/config-reference) for the full field listing.
+Inbound configurations define how sing-box accepts incoming connections. Only three inbound types are implemented: `tun`, `vless`, and `hysteria2`. Using any other type results in an "unknown inbound type" error.
 
-## Overview
+## TUN Inbound
 
-Each inbound is declared in the `inbounds` array of `cheburbox.json` with a `type` field that determines which other fields are relevant:
+System-level proxy inbound using a TUN interface. No user credentials.
 
-| Type | Protocol | Typical use |
-|---|---|---|
-| `vless` | VLESS with optional Reality TLS | Proxy connections from clients |
-| `hysteria2` | QUIC-based with optional TLS, obfs, masq | High-performance proxy |
-| `tun` | System TUN interface | Transparent proxy / VPN mode |
+> **`type`**: `"tun"`
 
-## VLESS
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | `string` | — | Yes | Inbound identifier. |
+| `type` | `string` | — | Yes | Must be `"tun"`. |
+| `interface_name` | `string` | — | No | TUN interface name (e.g. `"sing-box"`). |
+| `address` | `[]string` | — | Yes | CIDR addresses for the TUN interface (e.g. `["172.19.0.1/30"]`). Parsed as `netip.Prefix`. |
+| `mtu` | `int` | — | No | Maximum transmission unit. |
+| `auto_route` | `bool` | `false` | No | Automatically configure routes for the TUN interface. |
+| `auto_redirect` | `bool` | `false` | No | Automatically redirect system traffic to the TUN interface. |
+| `strict_route` | `bool` | `false` | No | Enforce strict routing rules to prevent traffic leaks. |
+| `endpoint_independent_nat` | `bool` | `false` | No | Enable endpoint-independent NAT for the TUN interface. |
+| `iproute2_table_index` | `int` | — | No | Custom iproute2 routing table index. |
+| `iproute2_rule_index` | `int` | — | No | Custom iproute2 routing rule index. |
+| `stack` | `string` | — | No | TUN stack type (e.g. `"system"`, `"gvisor"`). |
+| `exclude_interface` | `[]string` | — | No | Network interfaces to exclude from TUN routing (e.g. `["wt0", "awg0"]`). |
+| `route_exclude_address` | `[]string` | — | No | CIDR addresses to exclude from TUN routing (e.g. `["10.0.0.0/8"]`). Parsed as `netip.Prefix`. |
 
-VLESS inbounds accept proxy connections with optional Reality TLS for traffic camouflage.
-
-### Basic Configuration
+### Example
 
 ```json
 {
-  "tag": "vless-in",
-  "type": "vless",
-  "listen_port": 443,
-  "listen": "::",
-  "users": [
-    {"name": "alice"},
-    {"name": "bob"}
-  ]
+  "tag": "tun-in",
+  "type": "tun",
+  "interface_name": "sing-box",
+  "address": ["172.19.0.1/30"],
+  "mtu": 1500,
+  "auto_route": true,
+  "stack": "system",
+  "endpoint_independent_nat": true,
+  "exclude_interface": ["wt0", "awg0"],
+  "route_exclude_address": ["10.0.0.0/8"]
 }
 ```
 
-### Reality TLS
+## VLESS Inbound
 
-Add the `tls` block with a `reality` section to enable Reality. The `handshake.server` and `handshake.server_port` are required when Reality is configured. Short IDs are auto-generated (base64-encoded 8 bytes) if not provided.
+VLESS inbound with optional TLS and Reality. Users receive auto-generated UUIDs persisted across runs.
+
+> **`type`**: `"vless"`
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | `string` | — | Yes | Inbound identifier. |
+| `type` | `string` | — | Yes | Must be `"vless"`. |
+| `listen` | `string` | — | No | Listen address as IP. Empty string binds all interfaces. |
+| `listen_port` | `int` | — | Yes | Listen port (0 is valid; used when no port needed). |
+| `users` | `[]InboundUser` | — | No | User declarations. Each user gets a UUID auto-generated and persisted. |
+| `tls` | `InboundTLS` | — | No | TLS/Reality configuration. |
+
+### InboundUser
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `name` | `string` | — | Yes | User name. Must be unique per inbound. |
+| `flow` | `string` | `"xtls-rprx-vision"` | No | VLESS flow control. Defaults to `xtls-rprx-vision` if omitted. |
+
+### InboundTLS
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `server_name` | `string` | — | No | TLS server name for SNI. Enables plain TLS if set without Reality. |
+| `alpn` | `[]string` | — | No | TLS ALPN values. |
+| `reality` | `RealityConfig` | — | No | TLS Reality configuration. |
+
+### RealityConfig
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `handshake` | `RealityHandshake` | — | Yes | Handshake server details. Required when Reality is enabled. |
+| `short_id` | `[]string` | — | No | Reality short IDs. Hex-encoded 16-character strings (8 random bytes). Auto-generated and persisted if omitted. |
+
+### RealityHandshake
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `server` | `string` | — | Yes | Handshake server domain. |
+| `server_port` | `int` | — | Yes | Handshake server port. |
+
+### Example
 
 ```json
 {
   "tag": "vless-in",
   "type": "vless",
   "listen_port": 443,
-  "listen": "::",
   "tls": {
     "reality": {
       "handshake": {
-        "server": "example.com",
+        "server": "spain.info",
         "server_port": 443
       },
-      "short_id": ["abcd1234"]
+      "short_id": ["9b1f10c4"]
     }
   },
   "users": [
-    {"name": "alice"},
-    {"name": "bob", "flow": "xtls-rprx-vision"}
+    { "name": "desktop" }
   ]
 }
 ```
 
-### User Credentials
+## Hysteria2 Inbound
 
-VLESS users receive auto-generated UUIDv4 credentials. The default flow for auto-generated users is `"xtls-rprx-vision"`. You can set a per-user `flow` in the `users` array to override the default.
+Hysteria2 inbound with optional TLS, obfuscation, and masquerade. Users receive auto-generated passwords persisted across runs.
 
-```json
-{"name": "desktop", "flow": "xtls-rprx-vision"},
-{"name": "phone"}
-```
+> **`type`**: `"hysteria2"`
 
-Users are sorted alphabetically by name in the generated sing-box config. See [Credentials](/credentials) for details on credential generation and persistence.
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | `string` | — | Yes | Inbound identifier. |
+| `type` | `string` | — | Yes | Must be `"hysteria2"`. |
+| `listen` | `string` | — | No | Listen address as IP. Empty string binds all interfaces. |
+| `listen_port` | `int` | — | Yes | Listen port. |
+| `up_mbps` | `int` | — | No | Upload bandwidth limit in Mbps. |
+| `down_mbps` | `int` | — | No | Download bandwidth limit in Mbps. |
+| `users` | `[]InboundUser` | — | No | User declarations. Each user gets a password auto-generated and persisted. |
+| `tls` | `InboundTLS` | — | No | TLS configuration. |
+| `obfs` | `ObfsConfig` | — | No | Obfuscation configuration. |
+| `masquerade` | `MasqueradeConfig` | — | No | Masquerade configuration. |
 
-### Without TLS
+### TLS Behavior
 
-Omitting the `tls` block entirely produces a plain VLESS inbound with no TLS section in the output.
+When `tls.server_name` is set, self-signed Ed25519 certificates are automatically generated at `certs/<server_name>.crt` and `certs/<server_name>.key`. Certificate validity is 365 days.
 
-::: tip
-A VLESS inbound without TLS and without users is valid — useful for testing or local-only setups.
+::: warning
+Two or more Hysteria2 inbounds on the same server cannot share the same `tls.server_name` because they would conflict on certificate file paths.
 :::
 
-## Hysteria2
+### ObfsConfig
 
-Hysteria2 inbounds use QUIC for high-performance proxy connections with optional TLS, obfuscation, and HTTP masquerade.
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `type` | `string` | — | Yes | Obfuscation type (e.g. `"salamander"`). |
+| `password` | `string` | — | No | Obfuscation password. Auto-generated and persisted if omitted. |
 
-### Full Configuration
+### MasqueradeConfig
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `type` | `string` | — | Yes | Masquerade type. Only `"proxy"` is supported. |
+| `url` | `string` | — | No | Proxy URL for masquerade. |
+| `rewrite_host` | `bool` | `false` | No | Rewrite the Host header to the masquerade URL. |
+
+### Example
 
 ```json
 {
@@ -1018,180 +981,48 @@ Hysteria2 inbounds use QUIC for high-performance proxy connections with optional
   "up_mbps": 1000,
   "down_mbps": 1000,
   "tls": {
-    "server_name": "hy.example.com",
-    "alpn": ["h3"]
+    "server_name": "spain.info"
   },
   "obfs": {
     "type": "salamander"
   },
   "masquerade": {
     "type": "proxy",
-    "url": "https://hy.example.com",
+    "url": "https://spain.info",
     "rewrite_host": true
   },
   "users": [
-    {"name": "charlie"}
+    { "name": "desktop" }
   ]
 }
 ```
 
-### TLS Certificates
+## Credential Persistence
 
-When `tls.server_name` is set, cheburbox auto-generates a self-signed Ed25519 certificate with the server name in the DNS SAN. Certificate files are written to:
+User credentials (UUIDs for VLESS, passwords for Hysteria2, Reality keys and short IDs, obfs passwords) are persisted by re-reading the previously generated `config.json`. Credentials are not regenerated if they already exist, preserving existing client connections.
 
-- `certs/<server_name>.crt`
-- `certs/<server_name>.key`
-
-The certificate is valid for 365 days. If a certificate already exists with the correct SAN, it is reused.
-
-::: tip
-You can specify `alpn` values (e.g., `["h3"]`) in the TLS block to negotiate application-layer protocols.
-:::
-
-### Obfuscation
-
-Add the `obfs` block to enable salamander obfuscation. The `type` field must be `"salamander"`. If `password` is omitted, a 24-byte base64 password is auto-generated.
-
-```json
-{
-  "obfs": {
-    "type": "salamander"
-  }
-}
-```
-
-### Masquerade
-
-Add the `masquerade` block to disguise Hysteria2 traffic as normal HTTPS. The `type` field must be `"proxy"`.
-
-```json
-{
-  "masquerade": {
-    "type": "proxy",
-    "url": "https://hy.example.com",
-    "rewrite_host": true
-  }
-}
-```
-
-> `url`: The target URL to proxy masquerade requests to.
-> `rewrite_host`: When `true`, rewrites the Host header to match the proxy URL host.
-
-### Bandwidth Limits
-
-Use `up_mbps` and `down_mbps` to set upload and download bandwidth limits in Mbps.
-
-### User Credentials
-
-Hysteria2 users receive auto-generated 24-byte base64 passwords. See [Credentials](/credentials) for details.
-
-### Minimal Configuration
-
-A Hysteria2 inbound with no TLS, no obfuscation, and no masquerade is valid:
-
-```json
-{
-  "tag": "hy2-min",
-  "type": "hysteria2",
-  "listen_port": 8443
-}
-```
-
-## TUN
-
-TUN inbounds create a virtual network interface for transparent proxying.
-
-### Configuration
-
-```json
-{
-  "tag": "tun-in",
-  "type": "tun",
-  "interface_name": "sing-box",
-  "address": ["172.19.0.1/30", "fd00::1/126"],
-  "mtu": 1500,
-  "auto_route": true,
-  "stack": "system",
-  "exclude_interface": ["wt0"],
-  "route_exclude_address": ["10.0.0.0/8"]
-}
-```
-
-> `interface_name`: Name for the TUN interface (e.g., `"sing-box"`).
-> `address`: CIDR prefixes for the TUN interface. Supports both IPv4 and IPv6. Multiple addresses are allowed.
-> `mtu`: MTU value for the interface.
-> `auto_route`: When `true`, automatically adds routes for the TUN interface.
-> `stack`: Network stack to use (e.g., `"system"`).
-> `exclude_interface`: Interfaces to exclude from automatic routing (e.g., `["wt0", "awg0"]`).
-> `route_exclude_address`: CIDR prefixes excluded from auto-route (e.g., `["10.0.0.0/8"]`).
-
-::: warning
-Both `address` and `route_exclude_address` entries must be valid CIDR notation. Invalid values like `"not-a-cidr"` or `"999.999.999.999/8"` produce a parse error at generation time.
-:::
-
-### Multiple Addresses
-
-TUN supports multiple addresses, including mixed IPv4 and IPv6:
-
-```json
-{
-  "address": ["172.19.0.1/30", "fd00::1/126"]
-}
-```
-
-## Error Handling
-
-| Scenario | Error |
-|---|---|
-| Unknown inbound type | `unknown inbound type: <type>` |
-| Users declared but credentials missing | `missing credentials for declared users` |
-| Invalid TUN address CIDR | `parse address "<value>": ...` |
-| Invalid TUN route_exclude_address CIDR | `parse route exclude address "<value>": ...` |
-
+Users in generated configs are sorted alphabetically by name for deterministic output regardless of declaration order.
+---
 ---
 url: /outbounds
 ---
 # Outbounds
 
-Outbounds define how traffic leaves the server. Cheburbox supports five outbound types: direct connections, cross-server VLESS and Hysteria2 tunnels, and automatic or manual proxy selection.
+Outbound configurations define how sing-box routes outgoing traffic. Five outbound types are implemented: `direct`, `urltest`, `selector`, `vless` (cross-server), and `hysteria2` (cross-server).
 
-Outbounds are declared as an array in the top-level `outbounds` field of `cheburbox.json`. See [Config Reference](/config-reference) for the full schema.
+## Direct Outbound
 
-## Outbound Fields
+Passes traffic directly without proxying.
 
-The `Outbound` struct contains all fields used across outbound types. Only a subset applies to each type.
+> **`type`**: `"direct"`
 
-> `type`: string — Outbound type. One of `direct`, `vless`, `hysteria2`, `urltest`, `selector`.
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | `string` | — | Yes | Outbound identifier. |
+| `type` | `string` | — | Yes | Must be `"direct"`. |
+| `domain_resolver` | `string` | — | No | DNS server tag for resolving domain addresses. |
 
-> `tag`: string — Unique identifier for the outbound.
-
-> `server`: string — Target server directory name (cross-server outbounds only).
-
-> `inbound`: string — Target inbound tag on the remote server (cross-server outbounds only).
-
-> `user`: string — Username for authentication on the target inbound (cross-server outbounds only). Defaults to the current server name if not set.
-
-> `flow`: string — VLESS flow control value (VLESS outbounds only).
-
-> `endpoint`: string — Override the target server's endpoint address. Falls back to the server's `endpoint` field from its config.
-
-> `url`: string — Health check URL for urltest outbounds.
-
-> `interval`: string — Health check interval as a Go duration string (e.g. `"3m"`). Only used by urltest outbounds.
-
-> `idle_timeout`: string — Idle timeout for urltest outbounds as a Go duration string (e.g. `"5m"`). Only used by urltest outbounds.
-
-> `tolerance`: uint16 — Selection tolerance in milliseconds for urltest outbounds.
-
-> `interrupt_exist_connections`: bool — Whether to interrupt existing connections when switching urltest outbound.
-
-> `domain_resolver`: string — DNS server tag for resolving domain names on this outbound.
-
-> `outbounds`: []string — List of outbound tags to select from (urltest and selector outbounds only).
-
-## Direct
-
-A direct outbound sends traffic without any proxy. This is the simplest outbound type.
+### Example
 
 ```json
 {
@@ -1201,118 +1032,150 @@ A direct outbound sends traffic without any proxy. This is the simplest outbound
 }
 ```
 
-The `domain_resolver` field is optional. When set, it specifies which DNS server to use for resolving domains on this outbound. Without it, no domain resolver is attached.
+## URLTest Outbound
 
-## VLESS (Cross-Server)
+Automatically selects the best outbound from a group based on latency testing.
 
-A VLESS outbound tunnels traffic to a VLESS inbound on another server. It requires multi-server mode with resolved credentials from `ServerState`.
+> **`type`**: `"urltest"`
 
-See [Multi-Server](/multi-server) and [Credentials](/credentials) for details on how cross-server credential resolution works.
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | `string` | — | Yes | Outbound identifier. |
+| `type` | `string` | — | Yes | Must be `"urltest"`. |
+| `outbounds` | `[]string` | — | Yes | Tags of candidate outbounds to test. |
+| `url` | `string` | — | No | URL used for latency testing. |
+| `interval` | `string` | — | No | Testing interval as a Go duration string (e.g. `"3m"`, `"5s"`, `"1h30m"`). |
+| `tolerance` | `uint16` | — | No | Tolerance in milliseconds for switching outbounds. |
+| `idle_timeout` | `string` | — | No | Idle timeout as a Go duration string. |
+| `interrupt_exist_connections` | `bool` | — | No | Interrupt existing connections when switching to a better outbound. |
 
-```json
-{
-  "type": "vless",
-  "tag": "remote-vless",
-  "server": "remote",
-  "inbound": "vless-in",
-  "user": "alice",
-  "flow": "xtls-rprx-vision",
-  "domain_resolver": "dns-intl"
-}
-```
-
-### TLS and Reality
-
-When the target inbound has Reality configured, the outbound automatically includes:
-
-- TLS with the target's `server_name`.
-- uTLS with `firefox` fingerprint.
-- Reality with the public key and the first ShortID from the inbound's list.
-
-When the target inbound has TLS with a `server_name` but no Reality, the outbound gets TLS with `server_name` only. When neither is configured, no TLS is added to the outbound.
-
-### Endpoint Resolution
-
-The server address is resolved in this order:
-
-1. `outbound.endpoint` if set.
-2. The target server's `endpoint` field from its `cheburbox.json`.
-
-The server port always comes from the target inbound's `listen_port` in the server state, not from the endpoint override.
-
-### Error Conditions
-
-- No `ServerState` available: returns "requires server state" error.
-- No user specified and no default user: returns "no user specified" error.
-- User not found on target inbound: returns "user not found" error.
-- No credentials on target inbound: returns "no credentials found" error.
-- No endpoint on target server: returns "no endpoint configured" error.
-
-## Hysteria2 (Cross-Server)
-
-A Hysteria2 outbound tunnels traffic to a Hysteria2 inbound on another server, similar to VLESS cross-server outbounds.
-
-```json
-{
-  "type": "hysteria2",
-  "tag": "remote-hy2",
-  "server": "remote",
-  "inbound": "hy2-in",
-  "user": "bob"
-}
-```
-
-### TLS and Certificate Pinning
-
-TLS is always enabled on Hysteria2 outbounds. If a `pin-sha256` value is available from the target server's state (computed from its TLS certificate), it is decoded and attached as `CertificatePublicKeySHA256`.
-
-### Obfuscation
-
-If the target inbound has obfuscation configured (`obfs`), the `ObfsPassword` is automatically propagated to the outbound with type `salamander`. Without obfuscation on the target, no obfs is added.
-
-## URLTest
-
-A urltest outbound automatically selects the best proxy from a list by testing latency against a URL at regular intervals.
+### Example
 
 ```json
 {
   "type": "urltest",
   "tag": "proxy",
-  "outbounds": ["vless-out", "hy2-out"],
+  "outbounds": ["sp-p-2-vless", "sp-p-2-hy"],
   "url": "https://www.gstatic.com/generate_204",
-  "interval": "3m",
-  "idle_timeout": "5m",
-  "tolerance": 50
+  "interval": "3m"
 }
 ```
 
-The `interval` field accepts Go duration strings. Common values include `"30s"`, `"1m"`, `"3m"`, `"5m"`. If empty, the interval defaults to zero.
+## Selector Outbound
 
-The `idle_timeout` field uses the same Go duration format and controls how long an outbound can remain idle before being reconsidered. If empty, the idle timeout defaults to zero.
+Manual outbound selection from a group.
 
-The `tolerance` field specifies a selection tolerance in milliseconds. When set, the urltest outbound only switches to a new candidate if its latency is at least this many milliseconds lower than the current selection. This prevents frequent switching between proxies with similar latency.
+> **`type`**: `"selector"`
 
-The `interrupt_exist_connections` field, when set to `true`, causes sing-box to close existing connections on the current outbound when switching to a different one. By default, existing connections are allowed to finish naturally.
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | `string` | — | Yes | Outbound identifier. |
+| `type` | `string` | — | Yes | Must be `"selector"`. |
+| `outbounds` | `[]string` | — | Yes | Tags of available outbounds to select from. |
 
-## Selector
-
-A selector outbound lets sing-box choose a proxy from a list, typically via external control plane or API.
+### Example
 
 ```json
 {
   "type": "selector",
   "tag": "manual-proxy",
-  "outbounds": ["vless-out", "hy2-out"]
+  "outbounds": ["sp-p-2-vless", "sp-p-2-hy"]
 }
 ```
 
-## Using Outbounds with Routing
+## VLESS Outbound (Cross-Server)
 
-Outbound tags are referenced by route rules and the `route.final` field to direct traffic. See [Routing](/routing) for details on how rules match traffic to outbounds.
+Routes traffic to another server's VLESS inbound. Credentials are resolved from the target server's state.
 
-::: tip
-Cross-server outbounds (VLESS, Hysteria2) are only built when a `ServerState` is available during multi-server generation. In single-server mode, they will produce an error.
-:::
+> **`type`**: `"vless"`
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | `string` | — | Yes | Outbound identifier. |
+| `type` | `string` | — | Yes | Must be `"vless"`. |
+| `server` | `string` | — | Yes | Target server directory name. |
+| `inbound` | `string` | — | Yes | Target inbound tag on the remote server. |
+| `user` | `string` | server name | No | User name on the target inbound. Defaults to the source server's directory name if omitted. |
+| `flow` | `string` | — | No | VLESS flow control (e.g. `"xtls-rprx-vision"`). |
+| `endpoint` | `string` | — | No | Override endpoint address for the target server. Falls back to the target server's `endpoint` field. |
+| `domain_resolver` | `string` | — | No | DNS server tag for resolving the target server address. |
+
+### TLS Behavior
+
+TLS is configured automatically based on the target inbound:
+
+- **Reality**: Enables Reality with uTLS (fingerprint hardcoded to `"firefox"`). Uses the target inbound's public key and first short ID.
+- **Plain TLS** (server_name set, no Reality): Enables TLS with the target's server name for SNI.
+- **No TLS** (neither): No TLS layer added.
+
+### Endpoint Resolution
+
+The `endpoint` field overrides the target server's `endpoint` configuration. However, the port in the generated sing-box config always comes from the target inbound's `listen_port`, regardless of any endpoint override.
+
+### Example
+
+```json
+{
+  "type": "vless",
+  "tag": "sp-p-2-vless",
+  "server": "sp-p-2",
+  "inbound": "vless-in",
+  "user": "ru-p-2",
+  "flow": "xtls-rprx-vision",
+  "endpoint": "1.2.3.4"
+}
+```
+
+## Hysteria2 Outbound (Cross-Server)
+
+Routes traffic to another server's Hysteria2 inbound. Credentials are resolved from the target server's state.
+
+> **`type`**: `"hysteria2"`
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | `string` | — | Yes | Outbound identifier. |
+| `type` | `string` | — | Yes | Must be `"hysteria2"`. |
+| `server` | `string` | — | Yes | Target server directory name. |
+| `inbound` | `string` | — | Yes | Target inbound tag on the remote server. |
+| `user` | `string` | server name | No | User name on the target inbound. Defaults to the source server's directory name if omitted. |
+| `endpoint` | `string` | — | No | Override endpoint address for the target server. Falls back to the target server's `endpoint` field. |
+
+### TLS Behavior
+
+TLS is always enabled for Hysteria2 outbounds. The outbound propagates:
+
+- `server_name` from the target inbound's TLS config.
+- `alpn` from the target inbound's TLS config.
+
+If the target server has self-signed certificates, a `pin-sha256` fingerprint is automatically computed from the certificate's public key and added to the outbound.
+
+### Obfuscation
+
+If the target inbound has obfuscation configured, the outbound automatically enables salamander obfs with the persisted obfs password. The obfs type is hardcoded to `"salamander"` and is not configurable via `cheburbox.json`.
+
+### Endpoint Resolution
+
+Same as VLESS: `endpoint` overrides the server address, but the port always comes from the target inbound's `listen_port`.
+
+### Example
+
+```json
+{
+  "type": "hysteria2",
+  "tag": "sp-p-2-hy",
+  "server": "sp-p-2",
+  "inbound": "hy2-in",
+  "user": "ru-p-2"
+}
+```
+
+## Cross-Server Requirements
+
+Cross-server outbounds (`vless`, `hysteria2`) require server state to resolve credentials. This state is only available during full project generation. Building a cross-server outbound without state returns an error.
+
+The `user` field defaults to the source server's directory name when omitted. This means if server B has an outbound referencing server A's inbound without an explicit `user`, it connects as `"server-b"`.
+---
 ---
 url: /dns
 ---
@@ -1503,6 +1366,7 @@ An empty DNS servers list is rejected by config validation. Ensure at least one 
 Unknown DNS server types produce an "unsupported dns server type" error. Use only the documented types.
 :::
 ---
+---
 url: /routing
 ---
 # Routing
@@ -1680,6 +1544,7 @@ Route rules reference outbound tags defined in the `outbounds` section. The `fin
 
 DNS servers referenced in rules or `default_domain_resolver` must be defined in the `dns.servers` section. See [DNS](/dns) for DNS server configuration.
 ---
+---
 url: /multi-server
 ---
 # Multi-Server Architecture
@@ -1800,250 +1665,226 @@ Running `cheburbox generate` produces both `config.json` files. The exit server'
 
 See [CLI Reference](/cli-reference) for generation commands and [Validation](/validation) for error handling.
 ---
+---
 url: /credentials
 ---
 # Credentials
 
-Cheburbox generates and manages cryptographic credentials for each server. Credentials are persisted across runs so that the same UUIDs, keys, and passwords are reused unless you explicitly request regeneration.
+Cheburbox generates and manages all credentials required by sing-box: UUIDs, passwords, x25519 key pairs, short IDs, and TLS certificates. Understanding how credential persistence works is essential to avoid breaking existing deployments.
 
-See [Inbounds](/inbounds) for how credentials are declared in `cheburbox.json` and [Outbounds](/outbounds) for how they are referenced across servers.
+## How Credentials Work
+
+Every generation run follows this flow:
+
+1. Read the previously generated `config.json` from each server directory.
+2. Extract all credentials from the parsed sing-box options (VLESS UUIDs, Hysteria2 passwords, Reality keys, obfs passwords).
+3. For each declared user in `cheburbox.json`: reuse the persisted credential if it exists, otherwise generate a new one.
+4. Handle extra users (present in `config.json` but not declared in `cheburbox.json`) according to the credential mode.
+5. Write the final `config.json` and certificate files atomically.
+
+> **Never delete `config.json` manually.** Doing so causes all credentials to be regenerated on the next run, breaking every client that was using the old values.
 
 ## UUID Generation
 
-VLESS inbounds use UUID v4 for user identification. Generated via `github.com/gofrs/uuid/v5` (`uuid.NewV4()`), producing the standard `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` format.
+VLESS users are identified by UUIDv4 strings (e.g. `550e8400-e29b-41d4-a716-446655440000`). Generated via `gofrs/uuid/v5`.
 
-```go
-id, _ := uuid.NewV4()
-// "550e8400-e29b-41d4-a716-446655440000"
-```
-
-Auto-generated VLESS users receive the flow value `xtls-rprx-vision` by default.
+If a user with the same name existed in the previous `config.json`, the old UUID is reused. Otherwise a new one is generated.
 
 ## Password Generation
 
-Hysteria2 inbounds use 24 random bytes encoded with base64 `StdEncoding` for user passwords and obfuscation passwords.
-
-```go
-// GeneratePassword produces e.g. "dGhpcyBpcyBhIHRlc3QgcGFzc3dvcmQ="
-b := make([]byte, 24)
-rand.Read(b)
-base64.StdEncoding.EncodeToString(b)
-```
-
-## X25519 Key Pairs
-
-Reality TLS requires an X25519 key pair. Generated via `crypto/ecdh`, with both private and public keys encoded using base64 `RawURLEncoding` (no padding).
-
-```go
-key, _ := ecdh.X25519().GenerateKey(rand.Reader)
-privateKey := base64.RawURLEncoding.EncodeToString(key.Bytes())
-publicKey  := base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes())
-```
-
-### Public Key Derivation
-
-`DerivePublicKey` reconstructs a public key from a persisted private key string. It tries three base64 encodings in order (`generate/credentials.go:80-94`):
-
-1. `StdEncoding` (standard with padding)
-2. `RawStdEncoding` (standard without padding)
-3. `RawURLEncoding` (URL-safe without padding)
-
-If all three fail, it returns `"all encodings failed"`.
+Hysteria2 users and obfs passwords use base64-encoded 24-byte random values from `crypto/rand`. These are regenerated only if no persisted credential exists for the user.
 
 ## Short ID
 
-Reality TLS uses a short ID for client identification. Generated as 8 random bytes encoded with base64 `RawURLEncoding`.
+Reality TLS inbounds use a short ID field: 8 random bytes, hex-encoded to 16 characters (e.g. `a1b2c3d4e5f6a7b8`).
 
-```go
-b := make([]byte, 8)
-rand.Read(b)
-base64.RawURLEncoding.EncodeToString(b)
-```
+> **Encoding changed:** Short IDs now use hex encoding (16 hex characters). Previous versions used base64 RawURLEncoding. If you have old configs with base64 short IDs, run with `--full-reset` to regenerate.
+
+## x25519 Key Pairs
+
+Reality TLS requires an x25519 private/public key pair. Keys are 32 bytes from `ecdh.X25519()`, base64-encoded using RawURLEncoding.
+
+**Key persistence quirk:** If the persisted `config.json` has a private key but the public key field is empty, the public key is derived from the private key automatically. The derivation function tries three base64 encodings in order (Std, RawStd, RawURL) to handle different key formats.
 
 ## Certificate Generation
 
-Hysteria2 inbounds with TLS configured generate self-signed Ed25519 certificates.
+Hysteria2 inbounds with TLS (when `tls.server_name` is set) automatically get self-signed Ed25519 certificates:
 
-- **Algorithm**: Ed25519.
-- **Validity**: 365 days from generation time.
-- **SAN**: The `server_name` field from the inbound's TLS configuration.
-- **Certificate file**: `certs/<server_name>.crt` (permissions `0644`).
-- **Key file**: `certs/<server_name>.key` (permissions `0600`).
+- Certificate: `certs/<server_name>.crt`
+- Private key: `certs/<server_name>.key` (PKCS#8, permissions `0o600`)
+- Validity: 365 days
+- SAN: DNS name matching `server_name`
 
-Certificates are generated in PEM format, with the key encoded as PKCS#8 (`generate/certs.go:58-73`).
+Certificates are regenerated when:
+- The `server_name` changes
+- Certificate files are missing
+- Running with `--full-reset`
 
-### Certificate Regeneration
+## Credential Modes
 
-A certificate is regenerated when any of these conditions apply (`generate/certs.go:79-84`):
+Cheburbox supports three credential modes that control how extra users and credentials are handled.
 
-- `--clean` flag is set.
-- The certificate or key file does not exist.
-- The existing certificate's DNS SAN does not contain the configured `server_name`.
+### Default Mode (Preserve)
 
-::: warning
-Regeneration is triggered by SAN mismatch even if the certificate has not expired. If you change `server_name`, a new certificate is always generated.
-:::
+Without any flags, extra users present in the previous `config.json` but not declared in `cheburbox.json` are preserved in the output. This allows manually-added users to survive regeneration.
 
-## pin-sha256
-
-For Reality TLS outbounds, cheburbox computes a `pin-sha256` fingerprint from the target server's certificate. The fingerprint is the SHA-256 hash of the certificate's public key (SPKI), base64 `RawURLEncoded`, prefixed with `sha256/` (`generate/certs.go:120-140`).
-
-```go
-// Example output: "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-sum := sha256.Sum256(marshaledPublicKey)
-"sha256/" + base64.RawURLEncoding.EncodeToString(sum[:])
+```shell
+cheburbox generate --project /path/to/project
 ```
 
-## Credential Persistence
+### Full Reset Mode
 
-Credentials are persisted in the generated `config.json` file using sing-box option structs. On subsequent runs, cheburbox reads the existing `config.json` and extracts all credentials before generating (`config/persistence.go:47-63`).
+The `--full-reset` flag regenerates all credentials (UUIDs, passwords, Reality keys, obfs passwords, certificates) and removes any undeclared users. Use this when you want a completely fresh state.
 
-### What Gets Persisted
+```shell
+cheburbox generate --project /path/to/project --full-reset
+```
 
-| Credential | Source |
-|---|---|
-| VLESS user UUID + flow | `inbound.options.users[].uuid` |
-| Hysteria2 user password | `inbound.options.users[].password` |
-| Reality private key + short IDs | `inbound.options.tls.reality` |
-| Obfuscation password | `inbound.options.Obfs.password` |
+> **Warning:** This breaks all existing clients. Every credential is rotated.
 
-Extraction is handled by `ExtractCredentials` (`config/persistence.go:68-81`), which inspects VLESS and Hysteria2 inbound options.
+### Orphan Mode
 
-### Additive Behavior (Default)
+The `--orphan` flag removes only users that are not referenced by any cross-server outbound across the entire project. Declared users and manually-added users that are still referenced are preserved.
 
-By default, credential resolution is additive: users that exist in `config.json` but are not declared in `cheburbox.json` are preserved. This means manually added users or cross-server provisioned users survive regeneration.
-
-::: tip
-Run generation multiple times and the same UUIDs are preserved from the existing `config.json`. Only new users get fresh credentials.
-:::
-
-### Clean Mode
-
-When `--clean` is passed, undeclared users are removed and all credentials are regenerated from scratch. This also triggers certificate regeneration regardless of SAN matching.
+```shell
+cheburbox generate --project /path/to/project --orphan
+```
 
 ::: warning
-Clean mode removes cross-server provisioned users that are not declared locally. If another server depends on a user you remove, that server's outbound will reference a non-existent user.
+`--full-reset` and `--orphan` are mutually exclusive. They cannot be used together. Use `--full-reset` for a complete credential rotation, or `--orphan` to clean up only unreferenced users.
 :::
-
-## Missing or Invalid Config
-
-If `config.json` does not exist, cheburbox treats credentials as empty and generates fresh ones for all declared users. If the file exists but contains invalid JSON, generation fails with a parse error.
-
-See [Config Reference](/config-reference) for the full `cheburbox.json` schema and [Multi-Server](/multi-server) for how credentials flow across servers.
+---
 ---
 url: /cli-reference
 ---
 # CLI Reference
 
-Complete reference for the `cheburbox` command-line interface.
+Complete reference for all cheburbox commands and flags.
 
 ## Global Flags
 
-These flags apply to all subcommands.
+These flags are available on all commands and must be specified before the subcommand.
 
-| Flag | Default | Required | Description |
-|---|---|---|---|
-| `--project` | CWD | No | Project root directory. Defaults to the current working directory. |
-| `--jpath` | `lib` | No | Jsonnet library path. Relative paths are resolved against the project root. |
+| Flag | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `--project` | string | CWD | no | Project root directory. Server directories are direct children of this path. |
+| `--jpath` | string | `lib` | no | Jsonnet library search path. Relative to project root, or absolute. |
 
-## Commands
+## generate
 
-### `generate`
-
-Generate sing-box configuration files for all servers in the project.
+Generate sing-box configuration files for all discovered servers (or a single server and its dependencies).
 
 ```shell
-cheburbox generate
+cheburbox generate --project /path/to/project
 ```
 
-| Flag | Default | Required | Description |
-|---|---|---|---|
-| `--server` | — | No | Generate only this server and its transitive dependencies. |
-| `--clean` | `false` | No | Remove undeclared users and credentials from config.json. |
-| `--dry-run` | `false` | No | Output JSON to stdout without writing files. All file content is base64-encoded. |
+### Behavior
 
-When `--server` is specified, only that server and its transitive dependencies (determined by the DAG) are processed. Without `--server`, all servers in the project are processed.
+Discovers server directories, builds a dependency DAG, topologically sorts servers, and generates `config.json` files (plus certificates and rule-sets) into each server directory. Output is written atomically: either all files are written or none are.
 
-Dry-run output is a JSON array of objects with `server` and `files` fields. Each file entry has `path` and `content` (base64-encoded). This includes all files, not just binary ones.
+### Flags
 
-If no servers are found, prints `no servers found in project` and exits with code 0.
+| Flag | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `--server` | string | (all) | no | Generate only this server and its dependencies. If empty, generates all servers. |
+| `--full-reset` | bool | `false` | no | Regenerate all credentials and certificates. Removes undeclared users. |
+| `--orphan` | bool | `false` | no | Remove users not referenced by any cross-server outbound. |
+| `--dry-run` | bool | `false` | no | Output JSON to stdout without writing files. File contents are base64-encoded. |
 
-See [Quick Start](/quick-start) for usage examples.
+::: warning
+`--full-reset` and `--orphan` are mutually exclusive. They cannot be used together.
+:::
 
-### `validate`
-
-Validate cheburbox configurations without generating files. See [Validation](/validation) for details on the two-phase validation process.
-
-```shell
-cheburbox validate
-```
-
-| Flag | Default | Required | Description |
-|---|---|---|---|
-| `--server` | — | No | Validate only this server and its transitive dependencies. |
-
-Output is one line per server: `PASS`, `WARN`, or `FAIL`. Warnings and errors are printed to stdout. Any failure causes exit code 1.
-
-### `rule-set compile`
-
-Compile local rule-sets from JSON source to binary `.srs` format. See [Rule Sets](/rule-sets) for how rule-set sources are discovered and compiled.
-
-```shell
-cheburbox rule-set compile --server <name>
-```
-
-| Flag | Default | Required | Description |
-|---|---|---|---|
-| `--server` | — | No | Server name. Auto-discovers and compiles all rule-sets declared in the server's `custom_rule_sets`. |
-| `--input` | — | Yes\* | Input JSON rule-set file path. |
-| `--output` | — | Yes\* | Output `.srs` file path. |
-
-\* `--input` and `--output` are required when `--server` is not specified.
-
-When `--server` is used, the command loads the server config to read `route.custom_rule_sets`, discovers matching `<name>.json` source files in the server directory, and compiles each to `rule-set/<name>.srs`. The `rule-set/` directory is created with `0750` permissions.
-
-When `--server` is omitted, `--input` and `--output` must both be provided to compile a single file.
-
-## Exit Codes
-
-| Code | Meaning |
-|---|---|
-| 0 | Success (no errors). |
-| 1 | Any error occurred. Errors are printed to stderr. |
-
-## Usage Examples
+### Examples
 
 ```shell
 # Generate all servers
-cheburbox generate
+cheburbox generate --project /path/to/project
 
-# Generate a single server and its dependencies
-cheburbox generate --server proxy-server
+# Generate a single server (with its dependencies)
+cheburbox generate --project /path/to/project --server proxy-server
 
-# Preview output without writing files
-cheburbox generate --dry-run
+# Regenerate all credentials (full reset)
+cheburbox generate --project /path/to/project --full-reset
 
-# Remove stale users and credentials
-cheburbox generate --clean
+# Dry run — output to stdout without writing files
+cheburbox generate --project /path/to/project --dry-run
+```
 
+## validate
+
+Validate cheburbox configurations without generating files.
+
+```shell
+cheburbox validate --project /path/to/project
+```
+
+### Behavior
+
+Runs validation in two phases:
+
+- **Phase 1:** Cheburbox-level validation (schema, version, DNS, port range, server_name collision, outbound refs, group refs).
+- **Phase 2:** Runs `sing-box check` on existing `config.json` files. Skipped if no `config.json` exists yet (produces a WARN).
+
+### Flags
+
+| Flag | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `--server` | string | (all) | no | Validate only this server and its dependencies. |
+
+### Examples
+
+```shell
 # Validate all servers
-cheburbox validate
+cheburbox validate --project /path/to/project
 
 # Validate a single server
-cheburbox validate --server exit-server
+cheburbox validate --project /path/to/project --server my-server
+```
 
-# Compile all rule-sets for a server
-cheburbox rule-set compile --server proxy-server
+## rule-set compile
 
+Compile local rule-set sources from JSON to binary `.srs` format.
+
+```shell
+cheburbox rule-set compile --input rules.json --output rules.srs
+```
+
+### Behavior
+
+Two modes of operation:
+
+- **Server mode:** When `--server` is specified, discovers and compiles all rule-set sources for that server.
+- **File mode:** When `--server` is not specified, requires `--input` and `--output` for single-file compilation.
+
+### Flags
+
+| Flag | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `--server` | string | (none) | no* | Server name. Auto-compiles all rule-sets found in the server directory. |
+| `--input` | string | (none) | no* | Input JSON rule-set file path. Required without `--server`. |
+| `--output` | string | (none) | no* | Output `.srs` file path. Required without `--server`. |
+
+> *Exactly one mode must be used: either `--server` or the `--input`/`--output` pair.
+
+### Examples
+
+```shell
 # Compile a single rule-set file
 cheburbox rule-set compile --input extension.json --output extension.srs
 
-# Use a custom project directory
-cheburbox --project /path/to/project generate
-
-# Use a custom jsonnet library path
-cheburbox --jpath lib generate
+# Compile all rule-sets for a server
+cheburbox rule-set compile --project /path/to/project --server my-server
 ```
+
+## version
+
+Print the cheburbox version and exit.
+
+```shell
+cheburbox --version
+```
+---
 ---
 url: /rule-sets
 ---
@@ -2137,6 +1978,7 @@ project/
 
 See [Project Structure](/project-structure) for the full directory layout.
 ---
+---
 url: /validation
 ---
 # Validation
@@ -2211,112 +2053,120 @@ This resolves the dependency graph and runs both phases on the selected server a
 
 See [Multi-Server](/multi-server) for how dependencies are resolved.
 ---
+---
 url: /gotchas
 ---
 # Gotchas
 
-Common mistakes, edge cases, and non-obvious behaviors.
+Things that trip people up, explained. Organized as Q&A pairs.
 
-## Configuration
+## Common Mistakes
 
-**Q: Why is `{"version": 0, ...}` rejected?**
+### Why did all my credentials change after I deleted config.json?
 
-JSON zero value for integers is `0`. Cheburbox requires `version: 1` explicitly. Omitting `version` or setting it to `0` both fail validation with "unsupported version 0 (want 1)".
+Credentials are read from the previously generated `config.json` in each server directory. Deleting it causes all credentials (UUIDs, passwords, Reality keys, obfs passwords) to be regenerated on the next run. This breaks every existing client.
 
-**Q: Do outbound-only servers need an `endpoint`?**
+**Fix:** Do not delete `config.json`. If you need to rotate credentials, use `--full-reset` instead.
 
-No. The `endpoint` field is required only when the server has at least one inbound. Servers with only outbounds (e.g., client/proxy servers) can omit it. See [Config Reference](/config-reference) for details.
+### Why can't I use `--full-reset` and `--orphan` together?
 
-**Q: Are DNS rules or route rules validated by cheburbox?**
+They are mutually exclusive by design:
 
-No. DNS rules and route rules are raw JSON passthrough. Invalid rule content is caught by the sing-box check during Phase 2 validation, not by cheburbox itself. See [Validation](/validation).
+- `--full-reset` regenerates everything and removes all undeclared users.
+- `--orphan` only removes users not referenced by any cross-server outbound.
 
-## Inbounds
+Use `--full-reset` for a complete credential rotation, or `--orphan` to selectively clean up unreferenced users. They solve different problems.
 
-**Q: What filename do TLS certificates use?**
+### Why does my cross-server outbound use the wrong port?
 
-Certificate paths are `certs/<tls.server_name>.crt` and `certs/<tls.server_name>.key`, based on the `server_name` field, not the inbound tag. See [Inbounds](/inbounds).
+The `endpoint` field on a cross-server outbound overrides the server address but **not** the port. The port always comes from the target inbound's `listen_port` in `cheburbox.json`.
 
-**Q: Can two hysteria2 inbounds share the same `server_name`?**
+**Fix:** Make sure the target inbound's `listen_port` matches the port your server is actually listening on. The `endpoint` field only overrides the hostname/IP.
 
-No. Validation rejects this because both inbounds would write to the same cert file. This is detected in Phase 1.
+### Why is my server connecting with an unexpected username?
 
-**Q: Are users listed in declaration order?**
+If a cross-server outbound does not specify a `user` field, cheburbox defaults to the source server's directory name as the username. For example, if `server-b` has an outbound referencing `server-a` without a `user` field, it connects as `server-b`.
 
-No. VLESS and hysteria2 users are sorted alphabetically by name in the generated config.json, regardless of their order in cheburbox.json.
+**Fix:** Explicitly set the `user` field on the outbound.
 
-**Q: What `flow` do VLESS users get?**
+### Why does my 'shadowsocks' / 'vmess' / 'trojan' inbound fail?
 
-Auto-generated VLESS users default to `xtls-rprx-vision`. Set a per-user `flow` via `InboundUser.Flow` in cheburbox.json. See [Inbounds](/inbounds).
+Cheburbox only implements `tun`, `vless`, and `hysteria2` inbound types. Other inbound types are not supported and produce an "unknown inbound type" error.
 
-## Outbounds
+### Why does my outbound with a server reference fail for non-VLESS/Hysteria2 types?
 
-**Q: Can I use `BuildOutbound` standalone for cross-server types?**
+Only `vless` and `hysteria2` outbound types support cross-server references (the `server` and `inbound` fields). Other outbound types (`direct`, `urltest`, `selector`, etc.) are local-only.
 
-No. Cross-server outbounds (vless, hysteria2) require `ServerState` which is only available during full generation. Standalone `BuildOutbound` will fail for these types. See [Outbounds](/outbounds).
+### Why does `.cheburbox.jsonnet` seem to ignore my `cheburbox.json` changes?
 
-**Q: What is the default user for cross-server outbounds?**
+`.cheburbox.jsonnet` takes precedence over `cheburbox.json`. If both exist in the same directory, only the jsonnet file is used. This is intentional for templating, but surprising if both files are present.
 
-When `user` is omitted, it defaults to the current server's directory name (e.g., `"proxy-server"`), not any config field or hostname.
+**Fix:** Remove or rename the jsonnet file if you want to use plain JSON.
 
-**Q: Does `endpoint` override on an outbound change the port?**
+## Surprising Behaviors
 
-No. Setting `outbound.endpoint` to `"5.6.7.8:8443"` sets the server address, but `ServerPort` in the generated config still comes from the target inbound's `listen_port`. See [Outbounds](/outbounds).
+### Why are there users in my config.json that aren't in cheburbox.json?
 
-## Credentials
+By default, extra users from the previous `config.json` are preserved in the output. This allows manually-added users to survive regeneration. Use `--full-reset` to remove all extra users, or `--orphan` to remove only those not referenced by any cross-server outbound.
 
-**Q: Is generation idempotent?**
+### How do I enable sing-box `cache_file`?
 
-Subsequent runs preserve credentials by reading the existing config.json. However, if config.json is deleted, the next run generates entirely new credentials.
+The `experimental.cache_file` feature is disabled by default. Set `experimental.cache_file.enabled` to `true` in `cheburbox.json`. Even setting it explicitly to `false` suppresses the section from the output entirely.
 
-::: warning
-Deleting config.json causes new credentials to be generated on the next run. All existing users on the server will be invalidated.
-:::
+### Why is `auto_detect_interface` set to true when I didn't configure it?
 
-**Q: What does `--clean` actually remove?**
+When no `route` section is defined in `cheburbox.json`, cheburbox automatically sets `auto_detect_interface` to `true` in the generated sing-box config. Define a `route` section to control this explicitly (it then defaults to `false`).
 
-`--clean` removes all users and credentials not declared in cheburbox.json, including users auto-created by cross-server provisioning from other servers. See [Credentials](/credentials).
+### Can I change the uTLS fingerprint for VLESS Reality outbounds?
 
-**Q: When are certificates regenerated?**
+No. The uTLS fingerprint is hardcoded to `firefox` and cannot be configured via `cheburbox.json`.
 
-Certificates are regenerated when the SAN (Subject Alternative Name) doesn't match the current `tls.server_name`, even if the certificate has not expired. A valid certificate with a wrong SAN is overwritten.
+### Can I change the obfs type for Hysteria2 cross-server outbounds?
 
-## Generation
+No. The obfs type is hardcoded to `salamander` for cross-server Hysteria2 outbounds.
 
-**Q: What happens if server B is processed before server A?**
+### Why is the Reality Short ID 16 hex characters?
 
-If server B depends on server A and A provisions a user on B, B may be regenerated after A is processed. This is correct behavior but can be surprising. See [Multi-Server](/multi-server).
+Short IDs are 8 random bytes, hex-encoded to 16 characters (e.g. `a1b2c3d4e5f6a7b8`). Previous versions used base64 encoding. The hex encoding was chosen for compatibility with sing-box expectations.
 
-## Validation
+### Why are users in my config sorted differently from cheburbox.json?
 
-**Q: Why does Phase 2 show a warning instead of failing?**
+Users in generated VLESS and Hysteria2 inbound configs are sorted alphabetically by name. This ensures deterministic output regardless of declaration order.
 
-Phase 2 is skipped with a `WARN` when config.json does not exist. This is not treated as a failure because the server's cheburbox.json config may be valid even without a generated output. Exit code remains 0 if no errors are present.
+### Why does cheburbox regenerate a server I already processed?
 
-::: warning
-Run `cheburbox generate` before `cheburbox validate` to get full Phase 2 coverage. Without generated config.json files, Phase 2 is skipped.
-:::
+When a cross-server outbound references an inbound, cheburbox may need to add a user to the target server. This triggers regeneration of the target server's config. The DAG-based generation handles this by regenerating dirty servers after the initial pass. This is normal and expected.
 
-**Q: How are cycle errors reported?**
+## Troubleshooting
 
-Dependency cycles are reported as a `(global)` result with a "cycle detected" error. Phase 2 is skipped entirely when cycles exist.
+### Why does `cheburbox validate` show WARN instead of checking my config?
 
-## Rule Sets
+Phase 2 validation (`sing-box check`) requires a previously generated `config.json`. Run `cheburbox generate` first, then `cheburbox validate`. Without a generated config, Phase 2 is skipped and a WARN is shown.
 
-**Q: Can I use `.jsonnet` files as rule-set sources?**
+### Why can't I have two hysteria2 inbounds with the same `server_name`?
 
-No. Only `.json` files are discovered as rule-set sources. The `.cheburbox.jsonnet` file is the server config only. See [Rule Sets](/rule-sets).
+They would write to the same certificate file path (`certs/<server_name>.crt`), causing a conflict. Use different `server_name` values for each hysteria2 inbound.
 
-**Q: What if `custom_rule_sets` lists a name with no matching file?**
+### Why isn't my nested server directory discovered?
 
-It is silently skipped. No error is produced.
+Server discovery only looks at direct child directories of the project root. Nested directories (e.g. `project-root/server-a/nested/`) are not scanned.
 
-## CLI
+### Why does my config fail with 'unsupported version'?
 
-**Q: Does `--dry-run` only base64-encode binary files?**
+The `version` field in `cheburbox.json` must be exactly `1`. Any other value (including `0` or `2+`) is rejected. A missing `version` field also fails validation.
 
-No. `--dry-run` base64-encodes all file content, including JSON config files. See [CLI Reference](/cli-reference).
+### Why do I get 'endpoint is required' error?
 
-**Q: Where is `--jpath` resolved relative to?**
+If your config has any inbounds defined, the `endpoint` field must also be set. Client-only servers (outbounds only, no inbounds) do not need an `endpoint`.
 
-Relative `--jpath` values are resolved against the project root, not the current working directory. The default value is `lib`.
+### Why do I get 'dns section is required' error?
+
+Every `cheburbox.json` must define at least one DNS server in the `dns.servers` array. An empty array is not allowed.
+
+### Why can't I name a rule-set 'cheburbox' or 'config'?
+
+The filenames `cheburbox.json` and `config.json` are reserved and excluded from rule-set discovery to avoid conflicts. These names cannot be used as rule-set source files.
+
+### Why is `--dry-run` output not human-readable?
+
+The `--dry-run` flag outputs structured JSON to stdout where file contents are base64-encoded. It is designed for programmatic consumption, not direct reading.
