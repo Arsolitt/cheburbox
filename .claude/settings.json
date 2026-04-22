@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.go) d=$(dirname \"$f\"); golangci-lint run --fix \"./$(realpath --relative-to=. \"$d\")/...\" ;; esac; }",
+            "timeout": 60,
+            "statusMessage": "golangci-lint --fix"
+          }
+        ]
+      }
+    ]
+  }
+}

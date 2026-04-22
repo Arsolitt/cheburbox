@@ -2,12 +2,12 @@
 
 ## Build/Test Commands
 
-- Build: `go build -o build/cheburbox ./cmd/cheburbox/`
+- Build: `go build --output build/cheburbox ./cmd/cheburbox/`
 - Install: `go install github.com/Arsolitt/cheburbox/cmd/cheburbox@latest`
 - Run all tests: `go test ./...`
-- Run single test: `go test -run TestFunctionName ./path/to/package`
-- Run tests with coverage: `go test -cover ./...`
-- Run tests verbosely: `go test -v -run TestFunctionName ./path/to/package`
+- Run single test: `go test --run TestFunctionName ./path/to/package`
+- Run tests with coverage: `go test --cover ./...`
+- Run tests verbosely: `go test --verbose --run TestFunctionName ./path/to/package`
 - Lint code: `golangci-lint run`
 - Lint and auto-fix: `golangci-lint run --fix`
 - Always run `golangci-lint run --fix` first to auto-resolve issues before fixing remaining ones manually
