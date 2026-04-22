@@ -39,7 +39,8 @@ func NewRootCommand() *cobra.Command {
 	rootCmd.PersistentFlags().StringVar(&jpath, "jpath", "lib", "jsonnet library path")
 
 	var serverName string
-	var clean bool
+	var fullReset bool
+	var orphan bool
 	var dryRun bool
 
 	generateCmd := &cobra.Command{
@@ -54,13 +55,18 @@ func NewRootCommand() *cobra.Command {
 					return fmt.Errorf("get working directory: %w", err)
 				}
 			}
-			return runGenerate(command.OutOrStdout(), proj, jpath, serverName, clean, dryRun)
+			return runGenerate(command.OutOrStdout(), proj, jpath, serverName,
+				generate.GenerateConfig{FullReset: fullReset, Orphan: orphan}, dryRun)
 		},
 	}
 
 	generateCmd.Flags().StringVar(&serverName, "server", "", "generate only this server and its dependencies")
-	generateCmd.Flags().BoolVar(&clean, "clean", false, "remove undeclared users/credentials")
+	generateCmd.Flags().BoolVar(&fullReset, "full-reset", false,
+		"regenerate all credentials and certificates, remove undeclared users")
+	generateCmd.Flags().BoolVar(&orphan, "orphan", false,
+		"remove orphaned users not referenced by any server")
 	generateCmd.Flags().BoolVar(&dryRun, "dry-run", false, "output JSON to stdout without writing files")
+	generateCmd.MarkFlagsMutuallyExclusive("full-reset", "orphan")
 
 	rootCmd.AddCommand(generateCmd)
 
@@ -118,10 +124,9 @@ func runGenerate(
 	projectRoot string,
 	jpath string,
 	serverName string,
-	clean bool,
+	genCfg generate.GenerateConfig,
 	dryRun bool,
 ) error {
-	genCfg := generate.GenerateConfig{Clean: clean}
 	jpathAbs := resolveJPath(projectRoot, jpath)
 
 	var results []generate.GenerateResult

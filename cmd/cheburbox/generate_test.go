@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Arsolitt/cheburbox/generate"
 )
 
 func TestGenerateRun(t *testing.T) {
@@ -87,7 +89,7 @@ func TestGenerateRun(t *testing.T) {
 			tt.setup(t, root)
 
 			var buf bytes.Buffer
-			err := runGenerate(&buf, root, "lib", tt.server, false, false)
+			err := runGenerate(&buf, root, "lib", tt.server, generate.GenerateConfig{}, false)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -123,7 +125,7 @@ func TestGenerateWritesConfig(t *testing.T) {
 	}`)
 
 	var buf bytes.Buffer
-	err := runGenerate(&buf, root, "lib", "my-server", false, false)
+	err := runGenerate(&buf, root, "lib", "my-server", generate.GenerateConfig{}, false)
 	if err != nil {
 		t.Fatalf("runGenerate: %v", err)
 	}
@@ -166,7 +168,7 @@ func TestGenerateCredentialPersistence(t *testing.T) {
 	}`)
 
 	var buf1 bytes.Buffer
-	err := runGenerate(&buf1, root, "lib", "srv", false, false)
+	err := runGenerate(&buf1, root, "lib", "srv", generate.GenerateConfig{}, false)
 	if err != nil {
 		t.Fatalf("first runGenerate: %v", err)
 	}
@@ -178,7 +180,7 @@ func TestGenerateCredentialPersistence(t *testing.T) {
 	}
 
 	var buf2 bytes.Buffer
-	err = runGenerate(&buf2, root, "lib", "srv", false, false)
+	err = runGenerate(&buf2, root, "lib", "srv", generate.GenerateConfig{}, false)
 	if err != nil {
 		t.Fatalf("second runGenerate: %v", err)
 	}
@@ -208,7 +210,7 @@ func TestGenerateDryRun(t *testing.T) {
 	}`)
 
 	var buf bytes.Buffer
-	err := runGenerate(&buf, root, "lib", "", false, true)
+	err := runGenerate(&buf, root, "lib", "", generate.GenerateConfig{}, true)
 	if err != nil {
 		t.Fatalf("runGenerate: %v", err)
 	}
@@ -245,7 +247,7 @@ func TestGenerateDryRunNoDiskWrite(t *testing.T) {
 	}`)
 
 	var buf bytes.Buffer
-	err := runGenerate(&buf, root, "lib", "", false, true)
+	err := runGenerate(&buf, root, "lib", "", generate.GenerateConfig{}, true)
 	if err != nil {
 		t.Fatalf("runGenerate: %v", err)
 	}
@@ -303,6 +305,27 @@ func TestRuleSetCompileCommand(t *testing.T) {
 
 	if _, err := os.Stat(outputPath); err != nil {
 		t.Fatalf("output file not created: %v", err)
+	}
+}
+
+func TestFlagsMutuallyExclusive(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	setupServer(t, root, "srv", `{
+		"version": 1,
+		"dns": {
+			"servers": [{"type": "local", "tag": "dns-local"}],
+			"final": "dns-local"
+		}
+	}`)
+
+	rootCmd := NewRootCommand()
+	rootCmd.SetArgs([]string{"generate", "--project", root, "--full-reset", "--orphan"})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when both --full-reset and --orphan are set")
 	}
 }
 

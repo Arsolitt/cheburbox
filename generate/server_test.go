@@ -288,7 +288,7 @@ func TestResolveCredentials(t *testing.T) {
 		"alice": {UUID: "persisted-uuid"},
 	}
 
-	credsMap, err := resolveCredentials(cfg, persisted, false)
+	credsMap, err := resolveCredentials(cfg, persisted, GenerateConfig{}, nil)
 	if err != nil {
 		t.Fatalf("resolveCredentials: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestResolveCredentialsWithPersistedReality(t *testing.T) {
 		"alice": {UUID: "persisted-uuid"},
 	}
 
-	credsMap, err := resolveCredentials(cfg, persisted, false)
+	credsMap, err := resolveCredentials(cfg, persisted, GenerateConfig{}, nil)
 	if err != nil {
 		t.Fatalf("resolveCredentials: %v", err)
 	}
@@ -397,7 +397,7 @@ func TestResolveCredentialsDerivePublicKeyFromPrivate(t *testing.T) {
 		"alice": {UUID: "persisted-uuid"},
 	}
 
-	credsMap, err := resolveCredentials(cfg, persisted, false)
+	credsMap, err := resolveCredentials(cfg, persisted, GenerateConfig{}, nil)
 	if err != nil {
 		t.Fatalf("resolveCredentials: %v", err)
 	}
@@ -439,7 +439,7 @@ func TestResolveCredentialsDerivePublicKeyInvalid(t *testing.T) {
 		"alice": {UUID: "persisted-uuid"},
 	}
 
-	_, err := resolveCredentials(cfg, persisted, false)
+	_, err := resolveCredentials(cfg, persisted, GenerateConfig{}, nil)
 	if err == nil {
 		t.Fatal("expected error for invalid private key, got nil")
 	}
@@ -468,7 +468,7 @@ func TestResolveCredentialsWithPersistedObfs(t *testing.T) {
 		"alice": {Password: "persisted-pw"},
 	}
 
-	credsMap, err := resolveCredentials(cfg, persisted, false)
+	credsMap, err := resolveCredentials(cfg, persisted, GenerateConfig{}, nil)
 	if err != nil {
 		t.Fatalf("resolveCredentials: %v", err)
 	}
@@ -555,7 +555,7 @@ func TestParseCertPEMInvalid(t *testing.T) {
 	}
 }
 
-func TestGenerateServerClean(t *testing.T) {
+func TestGenerateServerFullReset(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -610,7 +610,7 @@ func TestGenerateServerClean(t *testing.T) {
 		},
 	}
 
-	result2, err := GenerateServer(dir, cfg2, GenerateConfig{Clean: true})
+	result2, err := GenerateServer(dir, cfg2, GenerateConfig{FullReset: true})
 	if err != nil {
 		t.Fatalf("second generate: %v", err)
 	}
@@ -636,7 +636,7 @@ func TestGenerateServerClean(t *testing.T) {
 	}
 }
 
-func TestGenerateServerNoCleanPreservesExtraUsers(t *testing.T) {
+func TestGenerateServerDefaultPreservesExtraUsers(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -691,7 +691,7 @@ func TestGenerateServerNoCleanPreservesExtraUsers(t *testing.T) {
 		},
 	}
 
-	result2, err := GenerateServer(dir, cfg2, GenerateConfig{Clean: false})
+	result2, err := GenerateServer(dir, cfg2, GenerateConfig{})
 	if err != nil {
 		t.Fatalf("second generate: %v", err)
 	}
@@ -941,6 +941,219 @@ func findResultByName(results []GenerateResult, server string) *GenerateResult {
 		}
 	}
 	return nil
+}
+
+func TestCrossServerUserRefs(t *testing.T) {
+	t.Parallel()
+
+	configs := map[string]config.Config{
+		"exit-server": {
+			Inbounds: []config.Inbound{
+				{Tag: "vless-in", Type: inboundTypeVLESS, Users: []config.InboundUser{{Name: "declared-user"}}},
+			},
+		},
+		"proxy-a": {
+			Outbounds: []config.Outbound{
+				{Type: inboundTypeVLESS, Tag: "out1", Server: "exit-server", Inbound: "vless-in", User: "proxy-a"},
+			},
+		},
+		"proxy-b": {
+			Outbounds: []config.Outbound{
+				{Type: inboundTypeVLESS, Tag: "out1", Server: "exit-server", Inbound: "vless-in"},
+			},
+		},
+		"unrelated": {
+			Outbounds: []config.Outbound{
+				{Type: outboundTypeDirect, Tag: "direct"},
+			},
+		},
+	}
+
+	refs := crossServerUserRefs(configs)
+
+	exitRefs := refs["exit-server"]
+	if exitRefs == nil {
+		t.Fatal("expected refs for exit-server")
+	}
+
+	vlessRefs := exitRefs["vless-in"]
+	if vlessRefs == nil {
+		t.Fatal("expected refs for vless-in tag")
+	}
+
+	if !vlessRefs["proxy-a"] {
+		t.Error("expected proxy-a to be referenced")
+	}
+	if !vlessRefs["proxy-b"] {
+		t.Error("expected proxy-b to be referenced (default user = source server name)")
+	}
+	if len(vlessRefs) != 2 {
+		t.Errorf("expected 2 referenced users, got %d", len(vlessRefs))
+	}
+
+	if refs["unrelated"] != nil {
+		t.Error("unrelated server should have no cross-server refs")
+	}
+}
+
+func TestResolveCredentialsFullResetRegeneratesAll(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Inbounds: []config.Inbound{
+			{
+				Tag:   "vless-in",
+				Type:  "vless",
+				Users: []config.InboundUser{{Name: "alice"}},
+				TLS: &config.InboundTLS{
+					Reality: &config.RealityConfig{
+						Handshake: &config.RealityHandshake{
+							Server:     "example.com",
+							ServerPort: 443,
+						},
+					},
+				},
+			},
+			{
+				Tag:   "hy2-in",
+				Type:  "hysteria2",
+				Users: []config.InboundUser{{Name: "bob"}},
+				Obfs:  &config.ObfsConfig{Type: "salamander"},
+			},
+		},
+	}
+
+	persisted := config.EmptyPersistedCredentials()
+	persisted.InboundUsers["vless-in"] = map[string]config.UserCredentials{
+		"alice": {UUID: "old-uuid", Flow: "xtls-rprx-vision"},
+	}
+	persisted.RealityKeys["vless-in"] = config.RealityKeyPair{
+		PrivateKey: "old-priv",
+		PublicKey:  "old-pub",
+		ShortID:    []string{"old-sid"},
+	}
+	persisted.InboundUsers["hy2-in"] = map[string]config.UserCredentials{
+		"bob": {Password: "old-pw"},
+	}
+	persisted.ObfsPasswords["hy2-in"] = "old-obfs"
+
+	credsMap, err := resolveCredentials(cfg, persisted, GenerateConfig{FullReset: true}, nil)
+	if err != nil {
+		t.Fatalf("resolveCredentials: %v", err)
+	}
+
+	vlessCreds := credsMap["vless-in"]
+	if vlessCreds.Users["alice"].UUID == "old-uuid" {
+		t.Error("FullReset should regenerate UUID, but got persisted value")
+	}
+	if vlessCreds.Users["alice"].UUID == "" {
+		t.Error("FullReset should generate a new UUID")
+	}
+	if vlessCreds.Reality != nil && vlessCreds.Reality.PrivateKey == "old-priv" {
+		t.Error("FullReset should regenerate reality keys")
+	}
+
+	hy2Creds := credsMap["hy2-in"]
+	if hy2Creds.Users["bob"].Password == "old-pw" {
+		t.Error("FullReset should regenerate password, but got persisted value")
+	}
+	if hy2Creds.ObfsPassword == "old-obfs" {
+		t.Error("FullReset should regenerate obfs password")
+	}
+}
+
+func TestResolveCredentialsOrphanRemovesUnreferencedUsers(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Inbounds: []config.Inbound{
+			{
+				Tag:   "vless-in",
+				Type:  "vless",
+				Users: []config.InboundUser{{Name: "alice"}},
+			},
+		},
+	}
+
+	persisted := config.EmptyPersistedCredentials()
+	persisted.InboundUsers["vless-in"] = map[string]config.UserCredentials{
+		"alice":        {UUID: "alice-uuid"},
+		"proxy-server": {UUID: "proxy-uuid"},
+		"stale-server": {UUID: "stale-uuid"},
+	}
+
+	crossServerUsers := map[string]map[string]bool{
+		"vless-in": {"proxy-server": true},
+	}
+
+	credsMap, err := resolveCredentials(cfg, persisted, GenerateConfig{Orphan: true}, crossServerUsers)
+	if err != nil {
+		t.Fatalf("resolveCredentials: %v", err)
+	}
+
+	vlessCreds := credsMap["vless-in"]
+
+	if vlessCreds.Users["alice"].UUID != "alice-uuid" {
+		t.Errorf("alice UUID = %q, want alice-uuid (declared user should be preserved)", vlessCreds.Users["alice"].UUID)
+	}
+	if vlessCreds.Users["proxy-server"].UUID != "proxy-uuid" {
+		t.Errorf("proxy-server UUID = %q, want proxy-uuid (referenced user should be preserved)",
+			vlessCreds.Users["proxy-server"].UUID)
+	}
+	if _, exists := vlessCreds.Users["stale-server"]; exists {
+		t.Error("stale-server should be removed as an orphan (not declared, not referenced)")
+	}
+	if len(vlessCreds.Users) != 2 {
+		t.Errorf("expected 2 users (alice + proxy-server), got %d", len(vlessCreds.Users))
+	}
+}
+
+func TestResolveCredentialsOrphanPreservesCreds(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Inbounds: []config.Inbound{
+			{
+				Tag:   "vless-in",
+				Type:  "vless",
+				Users: []config.InboundUser{{Name: "alice"}},
+				TLS: &config.InboundTLS{
+					Reality: &config.RealityConfig{
+						Handshake: &config.RealityHandshake{
+							Server:     "example.com",
+							ServerPort: 443,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	persisted := config.EmptyPersistedCredentials()
+	persisted.InboundUsers["vless-in"] = map[string]config.UserCredentials{
+		"alice": {UUID: "alice-uuid", Flow: "xtls-rprx-vision"},
+	}
+	persisted.RealityKeys["vless-in"] = config.RealityKeyPair{
+		PrivateKey: "persisted-priv",
+		PublicKey:  "persisted-pub",
+		ShortID:    []string{"persisted-sid"},
+	}
+
+	credsMap, err := resolveCredentials(cfg, persisted, GenerateConfig{Orphan: true}, nil)
+	if err != nil {
+		t.Fatalf("resolveCredentials: %v", err)
+	}
+
+	vlessCreds := credsMap["vless-in"]
+	if vlessCreds.Users["alice"].UUID != "alice-uuid" {
+		t.Errorf(
+			"alice UUID = %q, want alice-uuid (orphan mode should preserve credentials)",
+			vlessCreds.Users["alice"].UUID,
+		)
+	}
+	if vlessCreds.Reality.PrivateKey != "persisted-priv" {
+		t.Errorf("Reality PrivateKey = %q, want persisted-priv", vlessCreds.Reality.PrivateKey)
+	}
 }
 
 func setupTestServer(t *testing.T, root string, name string, cfg config.Config) {

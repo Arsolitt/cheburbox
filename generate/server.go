@@ -24,7 +24,8 @@ import (
 //
 //nolint:revive // "generate.Generate" stutter is intentional for API clarity.
 type GenerateConfig struct {
-	Clean bool
+	FullReset bool
+	Orphan    bool
 }
 
 // GenerateResult holds the generated server name and output files.
@@ -46,22 +47,29 @@ type FileOutput struct {
 //nolint:revive // "generate.Generate" stutter is intentional for API clarity.
 func GenerateServer(dir string, cfg config.Config, genCfg GenerateConfig) (GenerateResult, error) {
 	state := NewServerState()
-	result, _, err := generateServerWithState(dir, filepath.Base(dir), cfg, genCfg, state)
+	result, _, err := generateServerWithState(dir, filepath.Base(dir), cfg, genCfg, state, nil)
 	return result, err
 }
 
 // resolveCredentials merges persisted credentials with newly generated ones
 // for all inbounds in the configuration.
-// When clean is false, extra persisted users not declared in the config are preserved.
+// When FullReset is set, persisted credentials are discarded entirely.
+// When Orphan is set, only cross-server referenced users are preserved.
+// By default, all extra persisted users are preserved.
 func resolveCredentials(
 	cfg config.Config,
 	persisted config.PersistedCredentials,
-	clean bool,
+	genCfg GenerateConfig,
+	crossServerUsers map[string]map[string]bool,
 ) (map[string]InboundCredentials, error) {
+	if genCfg.FullReset {
+		persisted = config.EmptyPersistedCredentials()
+	}
+
 	credsMap := make(map[string]InboundCredentials, len(cfg.Inbounds))
 
 	for _, in := range cfg.Inbounds {
-		creds, err := resolveInboundCredentials(in, persisted, clean)
+		creds, err := resolveInboundCredentials(in, persisted, genCfg, crossServerUsers[in.Tag])
 		if err != nil {
 			return nil, fmt.Errorf("inbound %q: %w", in.Tag, err)
 		}
@@ -74,7 +82,8 @@ func resolveCredentials(
 func resolveInboundCredentials(
 	in config.Inbound,
 	persisted config.PersistedCredentials,
-	clean bool,
+	genCfg GenerateConfig,
+	referencedUsers map[string]bool,
 ) (InboundCredentials, error) {
 	creds := InboundCredentials{
 		Users: make(map[string]UserCreds, len(in.Users)),
@@ -97,7 +106,12 @@ func resolveInboundCredentials(
 		creds.Users[user.Name] = uc
 	}
 
-	if !clean {
+	switch {
+	case genCfg.FullReset:
+		// FullReset uses empty persisted, so no extra users exist to preserve.
+	case genCfg.Orphan:
+		preserveReferencedUsers(persisted, in.Tag, &creds, referencedUsers)
+	default:
 		preserveExtraPersistedUsers(persisted, in.Tag, &creds)
 	}
 
@@ -119,6 +133,26 @@ func preserveExtraPersistedUsers(
 ) {
 	for name, uc := range persisted.InboundUsers[tag] {
 		if _, declared := creds.Users[name]; !declared {
+			creds.Users[name] = UserCreds{
+				UUID:     uc.UUID,
+				Password: uc.Password,
+				Flow:     uc.Flow,
+			}
+		}
+	}
+}
+
+func preserveReferencedUsers(
+	persisted config.PersistedCredentials,
+	tag string,
+	creds *InboundCredentials,
+	referencedUsers map[string]bool,
+) {
+	for name, uc := range persisted.InboundUsers[tag] {
+		if _, declared := creds.Users[name]; declared {
+			continue
+		}
+		if referencedUsers[name] {
 			creds.Users[name] = UserCreds{
 				UUID:     uc.UUID,
 				Password: uc.Password,
@@ -234,7 +268,7 @@ func resolveServerName(in config.Inbound, creds *InboundCredentials) {
 // resolveCertificates handles TLS certificate generation for hysteria2 inbounds.
 // It reads existing certs, checks if they need regeneration, and generates new
 // ones if needed.
-func resolveCertificates(dir string, cfg config.Config, clean bool) ([]FileOutput, error) {
+func resolveCertificates(dir string, cfg config.Config, fullReset bool) ([]FileOutput, error) {
 	var files []FileOutput
 
 	for _, in := range cfg.Inbounds {
@@ -253,7 +287,7 @@ func resolveCertificates(dir string, cfg config.Config, clean bool) ([]FileOutpu
 			return nil, fmt.Errorf("read cert files for %q: %w", serverName, err)
 		}
 
-		needsRegen := clean
+		needsRegen := fullReset
 		if !needsRegen && certPEM != nil {
 			cert, parseErr := parseCertPEM(certPEM)
 			if parseErr != nil || CertNeedsRegeneration(cert, serverName) {
@@ -460,6 +494,46 @@ func GenerateServers(
 	return generateWithDAG(projectRoot, configs, order, genCfg)
 }
 
+// crossServerUserRefs scans all configs and builds a map of which users are
+// referenced by cross-server outbounds: targetServer -> inboundTag -> set of userNames.
+func crossServerUserRefs(
+	configs map[string]config.Config,
+) map[string]map[string]map[string]bool {
+	refs := make(map[string]map[string]map[string]bool)
+
+	for sourceName, cfg := range configs {
+		for _, out := range cfg.Outbounds {
+			if out.Server == "" {
+				continue
+			}
+			if out.Type != inboundTypeVLESS && out.Type != inboundTypeHysteria2 {
+				continue
+			}
+
+			user := out.User
+			if user == "" {
+				user = sourceName
+			}
+
+			serverRefs, ok := refs[out.Server]
+			if !ok {
+				serverRefs = make(map[string]map[string]bool)
+				refs[out.Server] = serverRefs
+			}
+
+			tagRefs, ok := serverRefs[out.Inbound]
+			if !ok {
+				tagRefs = make(map[string]bool)
+				serverRefs[out.Inbound] = tagRefs
+			}
+
+			tagRefs[user] = true
+		}
+	}
+
+	return refs
+}
+
 func generateWithDAG(
 	projectRoot string,
 	configs map[string]config.Config,
@@ -469,13 +543,24 @@ func generateWithDAG(
 	state := NewServerState()
 	resultMap := make(map[string]GenerateResult, len(order))
 
+	var allCrossServerUsers map[string]map[string]map[string]bool
+	if genCfg.Orphan {
+		allCrossServerUsers = crossServerUserRefs(configs)
+	}
+
 	for _, name := range order {
+		var serverCrossUsers map[string]map[string]bool
+		if allCrossServerUsers != nil {
+			serverCrossUsers = allCrossServerUsers[name]
+		}
+
 		result, dirty, genErr := generateServerWithState(
 			filepath.Join(projectRoot, name),
 			name,
 			configs[name],
 			genCfg,
 			state,
+			serverCrossUsers,
 		)
 		if genErr != nil {
 			return nil, fmt.Errorf("server %s: %w", name, genErr)
@@ -484,12 +569,18 @@ func generateWithDAG(
 
 		for target := range dirty {
 			if _, exists := resultMap[target]; exists {
+				var targetCrossUsers map[string]map[string]bool
+				if allCrossServerUsers != nil {
+					targetCrossUsers = allCrossServerUsers[target]
+				}
+
 				result, _, regenErr := generateServerWithState(
 					filepath.Join(projectRoot, target),
 					target,
 					configs[target],
 					genCfg,
 					state,
+					targetCrossUsers,
 				)
 				if regenErr != nil {
 					return nil, fmt.Errorf("regenerate server %s: %w", target, regenErr)
@@ -535,13 +626,14 @@ func generateServerWithState(
 	cfg config.Config,
 	genCfg GenerateConfig,
 	state *ServerState,
+	crossServerUsers map[string]map[string]bool,
 ) (GenerateResult, map[string]bool, error) {
 	persisted, err := config.LoadPersistedCredentials(filepath.Join(dir, "config.json"))
 	if err != nil {
 		return GenerateResult{}, nil, fmt.Errorf("load persisted credentials: %w", err)
 	}
 
-	credsMap, err := resolveCredentials(cfg, persisted, genCfg.Clean)
+	credsMap, err := resolveCredentials(cfg, persisted, genCfg, crossServerUsers)
 	if err != nil {
 		return GenerateResult{}, nil, fmt.Errorf("resolve credentials: %w", err)
 	}
@@ -554,7 +646,7 @@ func generateServerWithState(
 		mergeCredentialsIntoState(state, serverName, in.Tag, credsMap[in.Tag])
 	}
 
-	certFiles, err := resolveCertificatesWithState(dir, cfg, genCfg.Clean, state, serverName)
+	certFiles, err := resolveCertificatesWithState(dir, cfg, genCfg.FullReset, state, serverName)
 	if err != nil {
 		return GenerateResult{}, nil, fmt.Errorf("resolve certificates: %w", err)
 	}
@@ -725,11 +817,11 @@ func buildOutboundsWithState(
 func resolveCertificatesWithState(
 	dir string,
 	cfg config.Config,
-	clean bool,
+	fullReset bool,
 	state *ServerState,
 	serverName string,
 ) ([]FileOutput, error) {
-	files, err := resolveCertificates(dir, cfg, clean)
+	files, err := resolveCertificates(dir, cfg, fullReset)
 	if err != nil {
 		return nil, err
 	}
