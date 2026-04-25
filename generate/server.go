@@ -837,7 +837,7 @@ func resolveCertificatesWithState(
 			continue
 		}
 
-		pin, pinErr := computePinSHA256(certFile.Content)
+		pin, pinErr := ComputePinSHA256(certFile.Content)
 		if pinErr != nil {
 			return nil, fmt.Errorf("compute pin-sha256 for %q: %w", in.TLS.ServerName, pinErr)
 		}

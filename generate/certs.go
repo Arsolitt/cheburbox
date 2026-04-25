@@ -117,7 +117,8 @@ func WriteCertFiles(certPath string, keyPath string, certPEM []byte, keyPEM []by
 	return nil
 }
 
-func computePinSHA256(certPEM []byte) (string, error) {
+// ComputePinSHA256 computes the SHA-256 pin of a PEM-encoded certificate's public key.
+func ComputePinSHA256(certPEM []byte) (string, error) {
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
 		return "", errors.New("failed to decode PEM block")

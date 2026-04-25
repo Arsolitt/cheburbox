@@ -143,9 +143,9 @@ func TestComputePinSHA256(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateSelfSignedCertPEM: %v", err)
 	}
-	pin, err := computePinSHA256(certPEM)
+	pin, err := ComputePinSHA256(certPEM)
 	if err != nil {
-		t.Fatalf("computePinSHA256: %v", err)
+		t.Fatalf("ComputePinSHA256: %v", err)
 	}
 	if pin == "" {
 		t.Fatal("expected non-empty pin-sha256")
@@ -158,7 +158,7 @@ func TestComputePinSHA256(t *testing.T) {
 func TestComputePinSHA256InvalidPEM(t *testing.T) {
 	t.Parallel()
 
-	_, err := computePinSHA256([]byte("not valid PEM"))
+	_, err := ComputePinSHA256([]byte("not valid PEM"))
 	if err == nil {
 		t.Fatal("expected error for invalid PEM")
 	}
