@@ -3,6 +3,7 @@
 package links
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,6 +38,7 @@ func readPinSHA256(serverDir string, serverName string, tag string) (string, err
 const (
 	inboundTypeVLESS     = "vless"
 	inboundTypeHysteria2 = "hysteria2"
+	jsonMarshalIndent    = "  "
 )
 
 // Format specifies the output format for generated links.
@@ -312,6 +314,40 @@ func formatInboundInfo(info InboundInfo, format Format) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported inbound type %q", info.Type)
 	}
+}
+
+// marshalOutboundJSON marshals sing-box outbound options into pretty-printed
+// JSON with type and tag fields merged at the top level.
+func marshalOutboundJSON(outboundType string, tag string, opts any) (string, error) {
+	optsData, err := json.Marshal(opts)
+	if err != nil {
+		return "", fmt.Errorf("marshal %s outbound options: %w", outboundType, err)
+	}
+
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(optsData, &fields); err != nil {
+		return "", fmt.Errorf("parse %s outbound options: %w", outboundType, err)
+	}
+
+	typeJSON, err := json.Marshal(outboundType)
+	if err != nil {
+		return "", fmt.Errorf("marshal type field: %w", err)
+	}
+
+	tagJSON, err := json.Marshal(tag)
+	if err != nil {
+		return "", fmt.Errorf("marshal tag field: %w", err)
+	}
+
+	fields["type"] = typeJSON
+	fields["tag"] = tagJSON
+
+	pretty, err := json.MarshalIndent(fields, "", jsonMarshalIndent)
+	if err != nil {
+		return "", fmt.Errorf("pretty-print %s outbound json: %w", outboundType, err)
+	}
+
+	return string(pretty), nil
 }
 
 func formatVLESS(info InboundInfo, format Format) (string, error) {
