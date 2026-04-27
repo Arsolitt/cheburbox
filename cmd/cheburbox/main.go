@@ -13,6 +13,7 @@ import (
 
 	"github.com/Arsolitt/cheburbox/config"
 	"github.com/Arsolitt/cheburbox/generate"
+	"github.com/Arsolitt/cheburbox/links"
 	"github.com/Arsolitt/cheburbox/ruleset"
 	"github.com/Arsolitt/cheburbox/validate"
 )
@@ -116,7 +117,39 @@ func NewRootCommand() *cobra.Command {
 	validateCmd.Flags().StringVar(&validateServer, "server", "", "validate only this server and its dependencies")
 	rootCmd.AddCommand(validateCmd)
 
+	rootCmd.AddCommand(newLinksCmd(&projectRoot, &jpath))
+
 	return rootCmd
+}
+
+func newLinksCmd(projectRoot *string, jpath *string) *cobra.Command {
+	var server string
+	var user string
+	var inbound string
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "links",
+		Short: "Export client connection links from generated configs.",
+		RunE: func(command *cobra.Command, _ []string) error {
+			proj := *projectRoot
+			if proj == "" {
+				var err error
+				proj, err = os.Getwd()
+				if err != nil {
+					return fmt.Errorf("get working directory: %w", err)
+				}
+			}
+			return runLinks(command.OutOrStdout(), proj, *jpath, server, user, inbound, format)
+		},
+	}
+
+	cmd.Flags().StringVar(&server, "server", "", "restrict to specific server")
+	cmd.Flags().StringVar(&user, "user", "", "restrict to specific user")
+	cmd.Flags().StringVar(&inbound, "inbound", "", "restrict to specific inbound tag")
+	cmd.Flags().StringVar(&format, "format", "uri", "output format: uri or json")
+
+	return cmd
 }
 
 func runGenerate(
@@ -194,6 +227,40 @@ func runValidate(w io.Writer, projectRoot string, jpath string, serverName strin
 
 	if hasErrors {
 		return errors.New("validation failed")
+	}
+
+	return nil
+}
+
+var errInvalidFormat = errors.New("invalid format: must be \"uri\" or \"json\"")
+
+func runLinks(w io.Writer, projectRoot, jpath, server, user, inbound, format string) error {
+	var f links.Format
+
+	switch format {
+	case "uri":
+		f = links.FormatURI
+	case "json":
+		f = links.FormatJSON
+	default:
+		return errInvalidFormat
+	}
+
+	filter := links.Filter{
+		Server:  server,
+		User:    user,
+		Inbound: inbound,
+	}
+
+	jpathAbs := resolveJPath(projectRoot, jpath)
+
+	results, err := links.GenerateLinks(projectRoot, jpathAbs, filter, f)
+	if err != nil {
+		return fmt.Errorf("generate links: %w", err)
+	}
+
+	for _, link := range results {
+		fmt.Fprintln(w, link)
 	}
 
 	return nil
