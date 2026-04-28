@@ -9,6 +9,7 @@
 - [Quick install](#quick-install)
 - [Minimal example](#minimal-example)
 - [Documentation](#documentation)
+- [Using with AI Assistants](#using-with-ai-assistants)
 - [Requirements](#requirements)
 - [License](#license)
 
@@ -125,6 +126,27 @@ the schema, cross-server references, and runs the in-process sing-box check on e
 | [Links](./docs/links.md) | `cheburbox links` for VLESS and Hysteria2 share URIs / JSON outbounds |
 | [Rule-Set](./docs/rule-set.md) | `cheburbox rule-set compile` and `route.custom_rule_sets` |
 | [Architecture](./docs/architecture.md) | Pipeline, DAG, two-pass write, persistence model |
+
+For LLM-friendly consumption, the entire documentation is also available as a single concatenated file: [`llms-full.txt`](./llms-full.txt).
+
+---
+
+## Using with AI Assistants
+
+It is recommended to copy the following prompt and send it to an AI assistant — this can significantly improve the quality of generated configurations:
+
+```text
+https://github.com/Arsolitt/cheburbox/blob/main/llms-full.txt This link is the full documentation of cheburbox.
+
+【Role Setting】
+You are an expert proficient in sing-box proxy configuration and cheburbox project structure.
+
+【Task Requirements】
+1. Knowledge Base: Please read and deeply understand the content of this link, and use it as the sole basis for answering questions and writing configurations.
+2. No Hallucinations: Absolutely do not fabricate fields that do not exist in the documentation. If the documentation does not mention it, please tell me directly "Documentation does not mention".
+3. Default Format: Output JSON by default (unless I explicitly request a different format), and add key comments.
+4. Exception Handling: If you cannot access this link, please inform me clearly and prompt me to manually download the documentation and upload it to you.
+```
 
 ---
 
