@@ -11,7 +11,10 @@ Entry point: `cmd/cheburbox/`. User-facing schema: `config/`. Generation logic: 
 ## Files not to touch
 
 - **`BACKLOG.md`** — personal notes. Do not read, edit, or reference it in any output.
-- **`llms-full.txt`** — 80 KB sing-box API dump for LLM context. Read only when a specific sing-box API question requires it; do not pull it into context otherwise.
+
+## Files with special handling
+
+- **`llms-full.txt`** — LLM-friendly cheburbox documentation in single-file `llms-full.txt` format (~78 KB). Maintain via the `/writing-llms-docs` skill, which delegates parsing and rewriting to subagents. Do not pull the full file into the main context window; let subagents handle it.
 
 ## Commands
 
