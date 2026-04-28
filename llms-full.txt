@@ -1759,7 +1759,7 @@ url: /cli-reference
 ---
 # CLI Reference
 
-Complete reference for all cheburbox commands and flags.
+Complete reference for all `cheburbox` commands and flags. The CLI generates and validates sing-box configurations across multiple servers, exports client connection links, and compiles local rule-sets.
 
 ## Global Flags
 
@@ -1768,11 +1768,11 @@ These flags are available on all commands and must be specified before the subco
 | Flag | Type | Default | Required | Description |
 | --- | --- | --- | --- | --- |
 | `--project` | string | CWD | no | Project root directory. Server directories are direct children of this path. |
-| `--jpath` | string | `lib` | no | Jsonnet library search path. Relative to project root, or absolute. |
+| `--jpath` | string | `lib` | no | Jsonnet library search path. Joined to `--project` when relative; absolute paths pass through; empty string disables the library importer. |
 
 ## generate
 
-Generate sing-box configuration files for all discovered servers (or a single server and its dependencies).
+Generate sing-box configuration files for all discovered servers (or a single server and its transitive dependencies).
 
 ```shell
 cheburbox generate --project /path/to/project
@@ -1780,20 +1780,48 @@ cheburbox generate --project /path/to/project
 
 ### Behavior
 
-Discovers server directories, builds a dependency DAG, topologically sorts servers, and generates `config.json` files (plus certificates and rule-sets) into each server directory. Output is written atomically: either all files are written or none are.
+Discovers server directories, builds a dependency DAG, topologically sorts servers, and generates `config.json` (plus certificates and compiled rule-sets) into each server directory. Output is written atomically: either all files are written or none are. Persisted credentials are read from each server's existing `config.json` and reused unless `--full-reset` is set.
+
+If the project contains no servers, prints `no servers found in project` and exits 0.
 
 ### Flags
 
 | Flag | Type | Default | Required | Description |
 | --- | --- | --- | --- | --- |
-| `--server` | string | (all) | no | Generate only this server and its dependencies. If empty, generates all servers. |
+| `--server` | string | (all) | no | Generate only this server and its transitive dependencies. |
 | `--full-reset` | bool | `false` | no | Regenerate all credentials and certificates. Removes undeclared users. |
-| `--orphan` | bool | `false` | no | Remove users not referenced by any cross-server outbound. |
+| `--orphan` | bool | `false` | no | Remove users that are neither declared in any inbound nor referenced by any cross-server outbound. |
 | `--dry-run` | bool | `false` | no | Output JSON to stdout without writing files. File contents are base64-encoded. |
 
 ::: warning
 `--full-reset` and `--orphan` are mutually exclusive. They cannot be used together.
 :::
+
+### Output
+
+On a successful write, the command emits one line per server:
+
+```text
+Generated <N> files for server <name>
+```
+
+With `--dry-run`, output is a JSON array on stdout where each file's `content` field is base64-encoded — even though `config.json` is itself JSON. Decode before consuming.
+
+```json
+[
+  {
+    "server": "proxy-server",
+    "files": [
+      { "path": "config.json", "content": "<base64>" }
+    ]
+  }
+]
+```
+
+### Exit Conditions
+
+- Exit `0` on success (or when no servers are found).
+- Exit `1` on any error; the message is printed to stderr as `Error: <message>`.
 
 ### Examples
 
@@ -1806,6 +1834,9 @@ cheburbox generate --project /path/to/project --server proxy-server
 
 # Regenerate all credentials (full reset)
 cheburbox generate --project /path/to/project --full-reset
+
+# Drop users that are no longer declared or referenced
+cheburbox generate --project /path/to/project --orphan
 
 # Dry run — output to stdout without writing files
 cheburbox generate --project /path/to/project --dry-run
@@ -1821,16 +1852,35 @@ cheburbox validate --project /path/to/project
 
 ### Behavior
 
-Runs validation in two phases:
+Validation runs in two phases:
 
-- **Phase 1:** Cheburbox-level validation (schema, version, DNS, port range, server_name collision, outbound refs, group refs).
-- **Phase 2:** Runs `sing-box check` on existing `config.json` files. Skipped if no `config.json` exists yet (produces a WARN).
+- **Phase 1 (in-memory):** schema, version, port range, hysteria2 `server_name` collisions, outbound group references, cross-server inbound references.
+- **Phase 2 (in-process `sing-box` check):** runs against each server's existing `config.json`. Skipped with a `WARN` if `config.json` is absent. Phase 1 errors short-circuit Phase 2 for that server.
+
+If the project contains no servers, prints `no servers found in project` and exits 0.
 
 ### Flags
 
 | Flag | Type | Default | Required | Description |
 | --- | --- | --- | --- | --- |
-| `--server` | string | (all) | no | Validate only this server and its dependencies. |
+| `--server` | string | (all) | no | Validate only this server and its transitive dependencies. |
+
+### Output
+
+One line per result:
+
+```text
+PASS  <server>
+WARN  <server>: <warning>
+FAIL  <server>: <error>
+```
+
+Warnings are emitted before pass/fail status for the same server. Cyclic dependency errors surface as a single global result.
+
+### Exit Conditions
+
+- Exit `0` if every server is `PASS` (warnings alone do not fail).
+- Exit `1` with stderr message `Error: validation failed` if any server has errors.
 
 ### Examples
 
@@ -1840,6 +1890,60 @@ cheburbox validate --project /path/to/project
 
 # Validate a single server
 cheburbox validate --project /path/to/project --server my-server
+```
+
+## links
+
+Export client connection links from previously generated `config.json` files.
+
+```shell
+cheburbox links --project /path/to/project
+```
+
+### Behavior
+
+Reads existing `config.json` from each server directory; the command does **not** regenerate. Iterates over `vless` and `hysteria2` inbounds; other inbound types are ignored. If a server has no `config.json`, its inbounds yield no links — silently. Run `cheburbox generate` first.
+
+If the project contains no eligible inbounds, output is empty and exit code is 0.
+
+See [Connection Links](/links) for the full URI / JSON schema produced by this command.
+
+### Flags
+
+| Flag | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `--server` | string | (all) | no | Restrict to a specific server. |
+| `--user` | string | (all) | no | Restrict to a specific user name. |
+| `--inbound` | string | (all) | no | Restrict to a specific inbound tag. |
+| `--format` | string | `uri` | no | Output format. One of `uri` or `json`. |
+
+### Formats
+
+| Value | Output |
+| --- | --- |
+| `uri` | One share URI per line: `vless://...` for VLESS inbounds, `hysteria2://...` for Hysteria2 inbounds. |
+| `json` | Pretty-printed sing-box outbound JSON, one object per inbound/user. |
+
+::: warning
+Only `uri` and `json` are accepted. Any other value fails immediately with `Error: invalid format: must be "uri" or "json"`.
+:::
+
+The VLESS share URI hardcodes `type=tcp` and the UTLS fingerprint to `chrome`; other transports are not produced. The Hysteria2 share URI carries the inbound's ALPN list, while the Hysteria2 JSON outbound always sets `alpn=["h3"]` regardless of inbound configuration.
+
+### Exit Conditions
+
+- Exit `0` on success (including empty output).
+- Exit `1` on invalid `--format`, project load failure, or downstream link-generation error. Errors print to stderr as `Error: <message>`.
+
+### Examples
+
+```shell
+# All share URIs across the project
+cheburbox links --project /path/to/project
+
+# JSON outbound config for one user on one inbound
+cheburbox links --project /path/to/project \
+    --server proxy-server --inbound vless-in --user alice --format json
 ```
 
 ## rule-set compile
@@ -1852,20 +1956,28 @@ cheburbox rule-set compile --input rules.json --output rules.srs
 
 ### Behavior
 
-Two modes of operation:
+The command operates in one of two modes:
 
-- **Server mode:** When `--server` is specified, discovers and compiles all rule-set sources for that server.
-- **File mode:** When `--server` is not specified, requires `--input` and `--output` for single-file compilation.
+- **Server mode** (`--server <name>`): loads the server's config (jsonnet-aware), discovers `<name>.json` files in the server directory for each entry in `route.custom_rule_sets`, creates `<server>/rule-set/`, and writes `<name>.srs` for each match. Reserved names `cheburbox` and `config` are skipped silently.
+- **File mode** (no `--server`): reads `--input`, compiles, writes `--output`. Both flags are required in this mode.
+
+Successful compilation prints `Compiled <input> -> <output>` per file.
 
 ### Flags
 
 | Flag | Type | Default | Required | Description |
 | --- | --- | --- | --- | --- |
-| `--server` | string | (none) | no* | Server name. Auto-compiles all rule-sets found in the server directory. |
-| `--input` | string | (none) | no* | Input JSON rule-set file path. Required without `--server`. |
-| `--output` | string | (none) | no* | Output `.srs` file path. Required without `--server`. |
+| `--server` | string | (none) | no* | Server name. Auto-compiles all matching rule-sets in the server directory. |
+| `--input` | string | (none) | no* | Input JSON rule-set file path. Required when `--server` is not specified. |
+| `--output` | string | (none) | no* | Output `.srs` file path. Required when `--server` is not specified. |
 
-> *Exactly one mode must be used: either `--server` or the `--input`/`--output` pair.
+> *Exactly one mode must be used: either `--server`, or the `--input`/`--output` pair.
+
+### Exit Conditions
+
+- Exit `0` on success.
+- Exit `1` with `Error: --input and --output are required when --server is not specified` when neither mode is satisfied.
+- Exit `1` on read, parse, or compile errors.
 
 ### Examples
 
@@ -1876,15 +1988,6 @@ cheburbox rule-set compile --input extension.json --output extension.srs
 # Compile all rule-sets for a server
 cheburbox rule-set compile --project /path/to/project --server my-server
 ```
-
-## version
-
-Print the cheburbox version and exit.
-
-```shell
-cheburbox --version
-```
----
 ---
 url: /rule-sets
 ---
@@ -1978,6 +2081,184 @@ project/
 
 See [Project Structure](/project-structure) for the full directory layout.
 ---
+---
+url: /links
+---
+# Share Links
+
+Cheburbox can export client-facing connection links from the credentials and inbound options it has already generated. The `cheburbox links` command reads existing `config.json` files (and Hysteria2 cert files) and prints either protocol share URIs (`vless://`, `hysteria2://`) or sing-box outbound JSON blocks suitable for pasting into a client `config.json`.
+
+> **Read-only.** The `links` command never modifies the project. It depends on a previous successful `cheburbox generate`. If `config.json` is missing for a server, that server emits zero links silently — see [Credentials](/credentials) for how those values are originally produced.
+
+## The `links` Command
+
+```shell
+cheburbox links --project /path/to/project
+```
+
+### Behavior
+
+For every server discovered under `--project`, cheburbox loads `cheburbox.json` (or `.cheburbox.jsonnet`) and the previously generated `config.json`. It then iterates every VLESS or Hysteria2 inbound, every user inside that inbound, and emits one link per `(server, inbound, user)` combination on stdout. Inbounds of any other type are skipped silently.
+
+### Flags
+
+| Flag | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `--server` | string | (all) | no | Restrict output to this server. Unknown server name is an error. |
+| `--user` | string | (all) | no | Restrict output to this user name. Unknown user produces empty output (no error). |
+| `--inbound` | string | (all) | no | Restrict output to this inbound tag. Unknown tag produces empty output (no error). |
+| `--format` | string | `uri` | no | Output format. Must be `uri` or `json` — anything else fails with `invalid format: must be "uri" or "json"`. |
+
+Global flags (`--project`, `--jpath`) behave as documented in [CLI Reference](/cli-reference).
+
+### Output
+
+One link per line on stdout. JSON mode emits multiple pretty-printed objects concatenated as a stream — decode them sequentially. Iteration over user maps is not deterministic, so do not rely on a fixed line ordering across runs.
+
+## Filtering
+
+Each filter narrows independently and is ANDed with the rest:
+
+- `--server` filters by server directory name. **Unknown server is rejected** with `server "<name>" not found in project`.
+- `--user` filters by user name **inside each inbound's user map**. Unknown user yields zero lines, no error.
+- `--inbound` filters by inbound tag. Unknown tag yields zero lines, no error.
+
+Omitting all three iterates every VLESS / Hysteria2 inbound on every discovered server.
+
+## VLESS URI Format
+
+```text
+vless://<uuid>@<endpoint>:<port>?type=tcp&security=<reality|tls|none>&...#<server>-<inbound-tag>-<user>
+```
+
+- `<uuid>` and `<flow>` come from the persisted user record. Empty `flow` is omitted.
+- `<endpoint>` is the inbound's `Endpoint` from `cheburbox.json` (the dialable address), not the listen address.
+- `<port>` is `inbound.listen_port`.
+- The fragment `#<server>-<inbound-tag>-<user>` is hardcoded in that format and `url.PathEscape`'d.
+
+### Reality
+
+When the inbound declares Reality TLS:
+
+| URI param | Value |
+| --- | --- |
+| `security` | `reality` |
+| `sni` | `tls.reality.handshake.server` |
+| `pbk` | Public key derived on the fly from the persisted x25519 private key |
+| `sid` | First entry of the persisted ShortID list (`ShortID[0]`) — additional entries are ignored |
+| `fp` | Hardcoded `chrome` (see below) |
+| `flow` | Persisted user `flow`, omitted if empty |
+
+Empty `ShortID` means `sid=` is omitted entirely.
+
+### Plain TLS / no TLS
+
+If Reality is absent but `tls.server_name` is set, `security=tls` is emitted with `sni=<server_name>`. If neither Reality nor `server_name` is set, `security=none` and no `sni` parameter.
+
+### Transport
+
+`type=tcp` is **always** emitted. The links package does not generate `ws`, `grpc`, `h2`, or any other transport variant — even if the inbound is configured otherwise on the server side.
+
+### Multi-user
+
+Each user in the inbound's user map produces its own URI line. The user name lands only in the fragment; the `uuid` and `flow` come from that user's persisted record.
+
+## Hysteria2 URI Format
+
+```text
+hysteria2://<password>@<endpoint>:<port>?alpn=<csv>&obfs=<type>&obfs-password=<pw>&pinSHA256=<pin>&sni=<sni>#<server>-<inbound-tag>-<user>
+```
+
+- `<password>` is the user's persisted password (URI userinfo).
+- `alpn` is comma-joined and URL-encoded — multi-value ALPN like `[h3, h2]` becomes `alpn=h3%2Ch2`.
+- `obfs` and `obfs-password` are emitted only when the inbound declares an `obfs` block; the password comes from `PersistedCredentials.ObfsPasswords[tag]`.
+- `pinSHA256` is read from `<server>/certs/<server_name>.crt`. **If the cert file is missing, `pinSHA256` is silently omitted** — no error.
+- `sni` mirrors `tls.server_name`.
+
+A bare URI with no query parameters is valid output for a minimal inbound (only `password`, no SNI / Obfs / Pin / ALPN).
+
+Each user in the inbound produces its own line; only the password and the fragment differ across users on the same inbound.
+
+## JSON Output Mode
+
+`--format json` emits one sing-box outbound JSON object per `(server, inbound, user)` combination. Each object is pretty-printed and contains `type` and `tag` merged at the top level (in addition to all protocol-specific fields).
+
+```json
+{
+  "type": "vless",
+  "tag": "srv1-vless-in-alice",
+  "server": "1.2.3.4",
+  "server_port": 443,
+  "uuid": "...",
+  "flow": "xtls-rprx-vision",
+  "tls": {
+    "enabled": true,
+    "server_name": "www.example.com",
+    "utls": { "enabled": true, "fingerprint": "chrome" },
+    "reality": {
+      "enabled": true,
+      "public_key": "...",
+      "short_id": "..."
+    }
+  }
+}
+```
+
+```json
+{
+  "type": "hysteria2",
+  "tag": "srv1-hy2-alice",
+  "server": "example.com",
+  "server_port": 443,
+  "password": "...",
+  "tls": {
+    "enabled": true,
+    "alpn": ["h3"],
+    "server_name": "example.com",
+    "certificate_public_key_sha256": "<raw bytes>"
+  },
+  "obfs": { "type": "salamander", "password": "..." }
+}
+```
+
+### JSON-mode quirks
+
+- **Hysteria2 ALPN is always `["h3"]`** in JSON output, regardless of what the inbound declares. URI mode honors the configured ALPN; JSON mode does not.
+- `certificate_public_key_sha256` is the **decoded** raw bytes of the pin. Cheburbox decodes the `sha256/<base64-raw-url>` form using `base64.RawURLEncoding` after stripping the `sha256/` prefix. If the prefix is missing, the value is too short, or the base64 is invalid, link generation aborts for that user with an error.
+- `short_id` is always present in Reality JSON output, even when empty. URI mode omits the parameter when empty.
+
+## Notable Behaviors and Gotchas
+
+- **`fp=chrome` here, `firefox` elsewhere.** The links package hardcodes utls fingerprint `chrome` because share-link clients commonly advertise as Chrome. Cross-server outbounds generated by the `generate` package use `firefox`. **This divergence is deliberate, not a bug.**
+- **Only the first ShortID is exposed.** If a Reality config has multiple `short_id` entries, only `ShortID[0]` reaches the URI / JSON. Other entries are silently dropped.
+- **Missing `config.json` = silent empty output.** A server without a previously generated `config.json` contributes zero links. Run `cheburbox generate` first. See [Credentials](/credentials).
+- **Unknown server vs unknown user/inbound.** Unknown `--server` errors out; unknown `--user` or `--inbound` produces empty output silently. Plan your scripts accordingly.
+- **Non-VLESS / non-Hysteria2 inbounds are skipped.** TUIC, Shadowsocks, Tun, and other inbound types yield no links even if they accept users on the server side. See [Inbounds](/inbounds).
+- **Inbound declared but no users in `config.json`.** If the inbound exists in `cheburbox.json` but the persisted credentials map has no entry for that inbound's tag (for example, `config.json` was generated before users were added), the inbound is skipped silently.
+- **Empty `flow`.** Both URI (no `flow=` parameter) and JSON (no `flow` key) omit empty flow.
+- **Map iteration is non-deterministic.** Output ordering may differ across runs. Tests in this repo assert content, not order; downstream consumers should sort or hash if they require stability.
+- **Pin requires a valid cert file.** Hysteria2 `pinSHA256` is read from `<server>/certs/<server_name>.crt`. A missing file yields no pin, no error. A malformed pin (when present) aborts generation for that user.
+
+## Examples
+
+```shell
+# All links for every server, URI format
+cheburbox links --project /path/to/project
+
+# Just one server's links
+cheburbox links --project /path/to/project --server proxy-server
+
+# Just one user across all servers
+cheburbox links --project /path/to/project --user alice
+
+# Just one inbound on one server
+cheburbox links --project /path/to/project --server proxy-server --inbound vless-in
+
+# JSON outbound blocks for client config.json assembly
+cheburbox links --project /path/to/project --format json
+```
+
+See [CLI Reference](/cli-reference) for the full command surface.
 ---
 url: /validation
 ---
