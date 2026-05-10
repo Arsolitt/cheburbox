@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 )
@@ -170,6 +171,75 @@ func TestConfigMarshalRoundTrip(t *testing.T) {
 	}
 	if cfg2.Endpoint != cfg.Endpoint {
 		t.Errorf("round-trip Endpoint = %q, want %q", cfg2.Endpoint, cfg.Endpoint)
+	}
+}
+
+func TestConfigHTTPClientsField(t *testing.T) {
+	raw := `{
+		"version": 1,
+		"dns": {"servers": [{"type": "local", "tag": "dns-local"}]},
+		"http_clients": [{"tag": "my-client"}],
+		"route": {
+			"final": "direct",
+			"default_http_client": "my-client"
+		}
+	}`
+
+	var cfg Config
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if len(cfg.HTTPClients) == 0 {
+		t.Fatal("HTTPClients is empty, want non-empty")
+	}
+	if cfg.Route == nil {
+		t.Fatal("Route is nil")
+	}
+	if cfg.Route.DefaultHTTPClient != "my-client" {
+		t.Errorf("Route.DefaultHTTPClient = %q, want %q", cfg.Route.DefaultHTTPClient, "my-client")
+	}
+}
+
+func TestConfigHTTPClientsMarshalRoundTrip(t *testing.T) {
+	httpClients := json.RawMessage(`[{"tag":"my-client"}]`)
+	cfg := Config{
+		Version: 1,
+		DNS: DNS{
+			Servers: []DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		HTTPClients: httpClients,
+		Route: &Route{
+			Final:             "direct",
+			DefaultHTTPClient: "my-client",
+		},
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var cfg2 Config
+	if err := json.Unmarshal(data, &cfg2); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	var gotBuf, wantBuf bytes.Buffer
+	if err := json.Compact(&gotBuf, cfg2.HTTPClients); err != nil {
+		t.Fatalf("compact got: %v", err)
+	}
+	if err := json.Compact(&wantBuf, httpClients); err != nil {
+		t.Fatalf("compact want: %v", err)
+	}
+	if gotBuf.String() != wantBuf.String() {
+		t.Errorf("round-trip HTTPClients = %s, want %s", gotBuf.String(), wantBuf.String())
+	}
+	if cfg2.Route == nil {
+		t.Fatal("Route is nil after round-trip")
+	}
+	if cfg2.Route.DefaultHTTPClient != "my-client" {
+		t.Errorf("round-trip Route.DefaultHTTPClient = %q, want %q", cfg2.Route.DefaultHTTPClient, "my-client")
 	}
 }
 

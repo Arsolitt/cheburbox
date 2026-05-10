@@ -13,6 +13,7 @@ const CurrentSchemaVersion = 1
 type Config struct {
 	DNS          DNS             `json:"dns"`
 	Log          json.RawMessage `json:"log,omitempty"`
+	HTTPClients  json.RawMessage `json:"http_clients,omitempty"`
 	Inbounds     []Inbound       `json:"inbounds,omitempty"`
 	Outbounds    []Outbound      `json:"outbounds,omitempty"`
 	Endpoint     string          `json:"endpoint,omitempty"`
@@ -147,6 +148,7 @@ type Outbound struct {
 type Route struct {
 	Final                 string          `json:"final,omitempty"`
 	DefaultDomainResolver string          `json:"default_domain_resolver,omitempty"`
+	DefaultHTTPClient     string          `json:"default_http_client,omitempty"`
 	RuleSets              json.RawMessage `json:"rule_sets,omitempty"`
 	CustomRuleSets        []string        `json:"custom_rule_sets,omitempty"`
 	Rules                 json.RawMessage `json:"rules,omitempty"`

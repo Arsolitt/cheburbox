@@ -340,6 +340,53 @@ func unmarshalLog(raw json.RawMessage) (*option.LogOptions, error) {
 	return &logOpts, nil
 }
 
+func assembleOptions(
+	cfg config.Config,
+	dnsOpts *option.DNSOptions,
+	routeOpts *option.RouteOptions,
+	inbounds []option.Inbound,
+	outbounds []option.Outbound,
+) (*option.Options, error) {
+	opts := option.Options{
+		DNS:       dnsOpts,
+		Route:     routeOpts,
+		Inbounds:  inbounds,
+		Outbounds: outbounds,
+	}
+
+	if len(cfg.HTTPClients) > 0 {
+		httpClients, err := unmarshalHTTPClients(cfg.HTTPClients)
+		if err != nil {
+			return nil, err
+		}
+		opts.HTTPClients = httpClients
+	}
+
+	if len(cfg.Log) > 0 {
+		logOpts, err := unmarshalLog(cfg.Log)
+		if err != nil {
+			return nil, fmt.Errorf("unmarshal log: %w", err)
+		}
+		opts.Log = logOpts
+	}
+
+	if cfg.Route == nil && opts.Route != nil {
+		opts.Route.AutoDetectInterface = true
+	}
+
+	addBoilerplate(&opts, cfg)
+
+	return &opts, nil
+}
+
+func unmarshalHTTPClients(raw json.RawMessage) ([]option.HTTPClient, error) {
+	var clients []option.HTTPClient
+	if err := json.Unmarshal(raw, &clients); err != nil {
+		return nil, fmt.Errorf("unmarshal http_clients: %w", err)
+	}
+	return clients, nil
+}
+
 func buildInbounds(inbounds []config.Inbound, credsMap map[string]InboundCredentials) ([]option.Inbound, error) {
 	result := make([]option.Inbound, 0, len(inbounds))
 	for _, in := range inbounds {
@@ -682,28 +729,12 @@ func generateServerWithState(
 		return GenerateResult{}, nil, fmt.Errorf("build outbounds: %w", err)
 	}
 
-	opts := option.Options{
-		DNS:       dnsOpts,
-		Route:     routeOpts,
-		Inbounds:  inbounds,
-		Outbounds: outbounds,
+	opts, err := assembleOptions(cfg, dnsOpts, routeOpts, inbounds, outbounds)
+	if err != nil {
+		return GenerateResult{}, nil, err
 	}
 
-	if len(cfg.Log) > 0 {
-		logOpts, logErr := unmarshalLog(cfg.Log)
-		if logErr != nil {
-			return GenerateResult{}, nil, fmt.Errorf("unmarshal log: %w", logErr)
-		}
-		opts.Log = logOpts
-	}
-
-	if cfg.Route == nil && opts.Route != nil {
-		opts.Route.AutoDetectInterface = true
-	}
-
-	addBoilerplate(&opts, cfg)
-
-	configJSON, err := marshalOptions(&opts)
+	configJSON, err := marshalOptions(opts)
 	if err != nil {
 		return GenerateResult{}, nil, fmt.Errorf("marshal config: %w", err)
 	}

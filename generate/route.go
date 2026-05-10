@@ -25,6 +25,7 @@ func ConvertRoute(route *config.Route) (*option.RouteOptions, error) {
 	routeOpts := &option.RouteOptions{
 		Final:               route.Final,
 		AutoDetectInterface: route.AutoDetectInterface,
+		DefaultHTTPClient:   route.DefaultHTTPClient,
 	}
 
 	if route.DefaultDomainResolver != "" {

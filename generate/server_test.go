@@ -763,6 +763,63 @@ func TestGenerateServerCompilesRuleSets(t *testing.T) {
 	}
 }
 
+func TestGenerateServerHTTPClientsPassthrough(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	cfg := config.Config{
+		Version:  1,
+		Endpoint: "1.2.3.4",
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+		},
+		HTTPClients: json.RawMessage(`[{"tag":"my-client"}]`),
+		Route: &config.Route{
+			Final:             "direct",
+			DefaultHTTPClient: "my-client",
+		},
+	}
+
+	result, err := GenerateServer(dir, cfg, GenerateConfig{})
+	if err != nil {
+		t.Fatalf("GenerateServer: %v", err)
+	}
+
+	configFile := findFile(result.Files, "config.json")
+	if configFile == nil {
+		t.Fatal("config.json not found in result files")
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(configFile.Content, &parsed); err != nil {
+		t.Fatalf("parse generated config.json: %v", err)
+	}
+
+	clients, ok := parsed["http_clients"].([]any)
+	if !ok || len(clients) == 0 {
+		t.Fatal("http_clients missing or empty in generated config")
+	}
+	client, ok := clients[0].(map[string]any)
+	if !ok {
+		t.Fatal("http_clients[0] is not an object")
+	}
+	if client["tag"] != "my-client" {
+		t.Errorf("http_clients[0].tag = %v, want %q", client["tag"], "my-client")
+	}
+
+	route, ok := parsed["route"].(map[string]any)
+	if !ok {
+		t.Fatal("route section missing in generated config")
+	}
+	if route["default_http_client"] != "my-client" {
+		t.Errorf("route.default_http_client = %v, want %q", route["default_http_client"], "my-client")
+	}
+}
+
 func findFile(files []FileOutput, name string) *FileOutput {
 	for i := range files {
 		if files[i].Path == name {
