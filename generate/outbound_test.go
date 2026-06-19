@@ -318,6 +318,97 @@ func TestBuildVlessCrossServerOutbound(t *testing.T) {
 	}
 }
 
+func TestBuildVlessCrossServerMultiplex(t *testing.T) {
+	t.Parallel()
+
+	state := NewServerState()
+	state.StoreEndpoint("remote", "1.2.3.4")
+	state.StoreListenPort("remote", "vless-in", 443)
+	state.StoreInboundCredentials("remote", "vless-in", InboundCredentials{
+		Users: map[string]UserCreds{
+			"alice": {UUID: "test-uuid-1234"},
+		},
+		ServerName: "ams.example.com",
+	})
+
+	out := config.Outbound{
+		Type:    "vless",
+		Tag:     "remote-vless",
+		Server:  "remote",
+		Inbound: "vless-in",
+		User:    "alice",
+		Multiplex: &config.OutboundMultiplex{
+			Enabled:        true,
+			Protocol:       "smux",
+			MaxConnections: 4,
+			MinStreams:     1,
+			Padding:        true,
+		},
+	}
+
+	result, err := BuildOutboundWithState(out, state)
+	if err != nil {
+		t.Fatalf("BuildOutboundWithState: %v", err)
+	}
+
+	opts, ok := result.Options.(*option.VLESSOutboundOptions)
+	if !ok {
+		t.Fatalf("Options type = %T, want *option.VLESSOutboundOptions", result.Options)
+	}
+	if opts.Multiplex == nil {
+		t.Fatal("Multiplex is nil")
+	}
+	if !opts.Multiplex.Enabled {
+		t.Error("Multiplex.Enabled = false, want true")
+	}
+	if opts.Multiplex.Protocol != "smux" {
+		t.Errorf("Multiplex.Protocol = %q, want smux", opts.Multiplex.Protocol)
+	}
+	if opts.Multiplex.MaxConnections != 4 {
+		t.Errorf("Multiplex.MaxConnections = %d, want 4", opts.Multiplex.MaxConnections)
+	}
+	if opts.Multiplex.MinStreams != 1 {
+		t.Errorf("Multiplex.MinStreams = %d, want 1", opts.Multiplex.MinStreams)
+	}
+	if !opts.Multiplex.Padding {
+		t.Error("Multiplex.Padding = false, want true")
+	}
+}
+
+func TestBuildVlessCrossServerMultiplexInvalidProtocol(t *testing.T) {
+	t.Parallel()
+
+	state := NewServerState()
+	state.StoreEndpoint("remote", "1.2.3.4")
+	state.StoreListenPort("remote", "vless-in", 443)
+	state.StoreInboundCredentials("remote", "vless-in", InboundCredentials{
+		Users: map[string]UserCreds{
+			"alice": {UUID: "test-uuid-1234"},
+		},
+		ServerName: "ams.example.com",
+	})
+
+	out := config.Outbound{
+		Type:    "vless",
+		Tag:     "remote-vless",
+		Server:  "remote",
+		Inbound: "vless-in",
+		User:    "alice",
+		Multiplex: &config.OutboundMultiplex{
+			Enabled:  true,
+			Protocol: "wat",
+		},
+	}
+
+	_, err := BuildOutboundWithState(out, state)
+	if err == nil {
+		t.Fatal("expected error for invalid multiplex protocol, got nil")
+	}
+	if !strings.Contains(err.Error(), "must be h2mux, smux, or yamux") {
+		t.Errorf("error = %q, want substring 'must be h2mux, smux, or yamux'", err.Error())
+	}
+}
+
 func TestBuildHysteria2CrossServerOutbound(t *testing.T) {
 	t.Parallel()
 

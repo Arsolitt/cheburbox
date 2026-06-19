@@ -81,6 +81,9 @@ func buildVLESSInbound(in config.Inbound, creds InboundCredentials) (option.Inbo
 	if in.TLS != nil {
 		opts.InboundTLSOptionsContainer.TLS = buildInboundTLS(in.TLS, creds)
 	}
+	if in.Multiplex != nil {
+		opts.Multiplex = buildInboundMultiplex(in.Multiplex)
+	}
 
 	return option.Inbound{
 		Type:    in.Type,
@@ -138,6 +141,30 @@ func buildInboundTLS(tls *config.InboundTLS, creds InboundCredentials) *option.I
 	}
 
 	return tlsOpts
+}
+
+// buildInboundMultiplex converts a cheburbox InboundMultiplex config into a
+// sing-box InboundMultiplexOptions. The server side accepts any client protocol,
+// so only enabled, padding, and brutal are carried over.
+func buildInboundMultiplex(m *config.InboundMultiplex) *option.InboundMultiplexOptions {
+	mux := &option.InboundMultiplexOptions{
+		Enabled: m.Enabled,
+		Padding: m.Padding,
+	}
+	if m.Brutal != nil {
+		mux.Brutal = buildBrutal(m.Brutal)
+	}
+	return mux
+}
+
+// buildBrutal converts a cheburbox BrutalConfig into a sing-box BrutalOptions.
+// Shared by inbound and outbound multiplex builders.
+func buildBrutal(b *config.BrutalConfig) *option.BrutalOptions {
+	return &option.BrutalOptions{
+		Enabled:  b.Enabled,
+		UpMbps:   b.UpMbps,
+		DownMbps: b.DownMbps,
+	}
 }
 
 func buildHysteria2Inbound(in config.Inbound, creds InboundCredentials) (option.Inbound, error) {

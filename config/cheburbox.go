@@ -72,6 +72,7 @@ type Inbound struct {
 	Obfs                   *ObfsConfig       `json:"obfs,omitempty"`
 	TLS                    *InboundTLS       `json:"tls,omitempty"`
 	Masq                   *MasqueradeConfig `json:"masquerade,omitempty"`
+	Multiplex              *InboundMultiplex `json:"multiplex,omitempty"`
 	Type                   string            `json:"type"`
 	Stack                  string            `json:"stack,omitempty"`
 	Tag                    string            `json:"tag"`
@@ -125,23 +126,56 @@ type MasqueradeConfig struct {
 	RewriteHost bool   `json:"rewrite_host,omitempty"`
 }
 
+// InboundMultiplex holds sing-box multiplex (mux) configuration for VLESS
+// inbounds. It mirrors sing-box InboundMultiplexOptions: the server accepts
+// whichever protocol the client selects, so no protocol field is present.
+type InboundMultiplex struct {
+	Brutal  *BrutalConfig `json:"brutal,omitempty"`
+	Enabled bool          `json:"enabled,omitempty"`
+	Padding bool          `json:"padding,omitempty"`
+}
+
+// OutboundMultiplex holds sing-box multiplex (mux) configuration for VLESS
+// outbounds. It mirrors sing-box OutboundMultiplexOptions: the client selects
+// the protocol and connection/stream limits. Protocol must be one of the
+// sing-box mux protocols (h2mux, smux, yamux); empty defaults to h2mux.
+type OutboundMultiplex struct {
+	Brutal         *BrutalConfig `json:"brutal,omitempty"`
+	Protocol       string        `json:"protocol,omitempty"`
+	MaxConnections int           `json:"max_connections,omitempty"`
+	MinStreams     int           `json:"min_streams,omitempty"`
+	MaxStreams     int           `json:"max_streams,omitempty"`
+	Enabled        bool          `json:"enabled,omitempty"`
+	Padding        bool          `json:"padding,omitempty"`
+}
+
+// BrutalConfig holds TCP Brutal congestion-control configuration for multiplex.
+// It mirrors sing-box BrutalOptions and only takes effect when the multiplex
+// brutal block is enabled.
+type BrutalConfig struct {
+	Enabled  bool `json:"enabled,omitempty"`
+	UpMbps   int  `json:"up_mbps,omitempty"`
+	DownMbps int  `json:"down_mbps,omitempty"`
+}
+
 // Outbound represents a single outbound configuration.
 // Use Type field to determine which fields are relevant.
 type Outbound struct {
-	Endpoint                  string   `json:"endpoint,omitempty"`
-	DomainResolver            string   `json:"domain_resolver,omitempty"`
-	Server                    string   `json:"server,omitempty"`
-	Inbound                   string   `json:"inbound,omitempty"`
-	User                      string   `json:"user,omitempty"`
-	Flow                      string   `json:"flow,omitempty"`
-	Interval                  string   `json:"interval,omitempty"`
-	Type                      string   `json:"type"`
-	Tag                       string   `json:"tag"`
-	URL                       string   `json:"url,omitempty"`
-	IdleTimeout               string   `json:"idle_timeout,omitempty"`
-	Outbounds                 []string `json:"outbounds,omitempty"`
-	Tolerance                 uint16   `json:"tolerance,omitempty"`
-	InterruptExistConnections bool     `json:"interrupt_exist_connections,omitempty"`
+	Endpoint                  string             `json:"endpoint,omitempty"`
+	DomainResolver            string             `json:"domain_resolver,omitempty"`
+	Server                    string             `json:"server,omitempty"`
+	Inbound                   string             `json:"inbound,omitempty"`
+	User                      string             `json:"user,omitempty"`
+	Flow                      string             `json:"flow,omitempty"`
+	Multiplex                 *OutboundMultiplex `json:"multiplex,omitempty"`
+	Interval                  string             `json:"interval,omitempty"`
+	Type                      string             `json:"type"`
+	Tag                       string             `json:"tag"`
+	URL                       string             `json:"url,omitempty"`
+	IdleTimeout               string             `json:"idle_timeout,omitempty"`
+	Outbounds                 []string           `json:"outbounds,omitempty"`
+	Tolerance                 uint16             `json:"tolerance,omitempty"`
+	InterruptExistConnections bool               `json:"interrupt_exist_connections,omitempty"`
 }
 
 // Route holds the routing configuration section.

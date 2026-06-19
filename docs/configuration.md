@@ -9,6 +9,7 @@
 - [Servers](#servers)
 - [Inbounds](#inbounds)
   - [VLESS / Reality](#vless--reality)
+  - [Multiplex](#multiplex)
   - [Hysteria2](#hysteria2)
   - [TUN](#tun)
 - [Outbounds](#outbounds)
@@ -152,6 +153,77 @@ A VLESS inbound carries TLS configuration through the `tls` field. For Reality, 
 
 The Reality x25519 keypair and `short_id` are **not** in the cheburbox schema. They are generated on first run and persisted in the resulting `config.json`; subsequent runs re-extract them so existing clients keep working. See [Persistence](#persistence).
 
+### Multiplex
+
+A VLESS inbound (server side) or a cross-server VLESS outbound (client side) can enable
+sing-box [multiplex](https://sing-box.sagernet.org/configuration/shared/multiplex/) (mux), which bundles several logical streams over a single TCP connection. Cheburbox models both sides:
+
+- **Inbound `multiplex`** — the server accepts whichever mux protocol the client selects, so only `enabled`, `padding`, and `brutal` apply.
+- **Outbound `multiplex`** (cross-server VLESS only) — the client selects the `protocol` and the connection/stream limits.
+
+Hysteria2 and TUN ignore `multiplex` (sing-box does not apply mux to them).
+
+VLESS inbound with multiplex:
+
+```json
+{
+  "type": "vless",
+  "tag": "vless-in",
+  "listen_port": 443,
+  "users": [{"name": "alice"}],
+  "tls": {"server_name": "example.com"},
+  "multiplex": {"enabled": true, "padding": true}
+}
+```
+
+Cross-server VLESS outbound with multiplex:
+
+```json
+{
+  "type": "vless",
+  "tag": "to-a",
+  "server": "srv-a",
+  "inbound": "vless-in",
+  "multiplex": {
+    "enabled": true,
+    "protocol": "smux",
+    "max_connections": 4,
+    "min_streams": 1,
+    "padding": true
+  }
+}
+```
+
+`InboundMultiplex`:
+
+| Field     | Type            | Required | Notes                                         |
+| --------- | --------------- | -------- | --------------------------------------------- |
+| `enabled` | `bool`          | No       | Turns on server-side mux.                     |
+| `padding` | `bool`          | No       | Enables mux padding against traffic analysis. |
+| `brutal`  | `*BrutalConfig` | No       | TCP Brutal congestion control. See below.     |
+
+`OutboundMultiplex`:
+
+| Field             | Type            | Required | Notes                                                                                |
+| ----------------- | --------------- | -------- | ----------------------------------------------------------------------------------- |
+| `enabled`         | `bool`          | No       | Turns on client-side mux.                                                           |
+| `protocol`        | `string`        | No       | `h2mux` (default), `smux`, or `yamux`. Other values are rejected at generation time. |
+| `max_connections` | `int`           | No       | Max TCP connections the mux pool opens.                                             |
+| `min_streams`     | `int`           | No       | Min streams before opening a new connection.                                        |
+| `max_streams`     | `int`           | No       | Max streams per connection before a new one opens.                                  |
+| `padding`         | `bool`          | No       | Enables mux padding.                                                                |
+| `brutal`          | `*BrutalConfig` | No       | TCP Brutal congestion control. See below.                                           |
+
+`BrutalConfig`:
+
+| Field       | Type   | Required | Notes                                                   |
+| ----------- | ------ | -------- | ------------------------------------------------------- |
+| `enabled`   | `bool` | No       | Enables TCP Brutal CC (requires a Brutal-capable build). |
+| `up_mbps`   | `int`  | No       | Upload bandwidth in Mbps.                               |
+| `down_mbps` | `int`  | No       | Download bandwidth in Mbps.                             |
+
+For the full field reference, see [Field reference tables](#field-reference-tables).
+
 ### Hysteria2
 
 ```json
@@ -261,6 +333,7 @@ For `vless` and `hysteria2`, cheburbox builds a cross-server reference using the
 | `flow`                        | `string`   | vless                | Honored when set; the generated cross-server outbound otherwise mirrors the target user's flow. |
 | `endpoint`                    | `string`   | vless / hysteria2    | Overrides the target server's `endpoint` field.                                               |
 | `domain_resolver`             | `string`   | vless / hysteria2    | DNS server tag used to resolve the outbound's hostname.                                       |
+| `multiplex`                    | `*OutboundMultiplex` | vless                | Sing-box [multiplex](https://sing-box.sagernet.org/configuration/shared/multiplex/) (mux). See [Multiplex](#multiplex). |
 | `outbounds`                   | `[]string` | urltest / selector   | Member outbound tags. **Intra-server only** — cross-server tags are not supported in groups.  |
 | `url`                         | `string`   | urltest              | Probe URL.                                                                                    |
 | `interval`                    | `string`   | urltest              | Go duration (e.g. `3m`).                                                                      |
@@ -465,6 +538,34 @@ Self-references (a server's outbound pointing to itself) and cycles are rejected
 | `server_name` | `string`         | No       | TLS SNI. For Hysteria2, also drives the cert filename `certs/<server_name>.crt`.                           |
 | `alpn`        | `[]string`       | No       |                                                                                                            |
 | `reality`     | `*RealityConfig` | No       | Set to enable Reality.                                                                                     |
+
+### `InboundMultiplex`
+
+| Field     | Type            | Required | Description                                         |
+| --------- | --------------- | -------- | --------------------------------------------------- |
+| `enabled` | `bool`          | No       | Turns on server-side mux.                           |
+| `padding` | `bool`          | No       | Enables mux padding against traffic analysis.       |
+| `brutal`  | `*BrutalConfig` | No       | TCP Brutal congestion control.                      |
+
+### `OutboundMultiplex`
+
+| Field             | Type            | Required | Description                                                                                |
+| ----------------- | --------------- | -------- | ----------------------------------------------------------------------------------------- |
+| `enabled`         | `bool`          | No       | Turns on client-side mux.                                                                 |
+| `protocol`        | `string`        | No       | `h2mux` (default), `smux`, or `yamux`. Other values are rejected at generation time.       |
+| `max_connections` | `int`           | No       | Max TCP connections the mux pool opens.                                                   |
+| `min_streams`     | `int`           | No       | Min streams before opening a new connection.                                              |
+| `max_streams`     | `int`           | No       | Max streams per connection before a new one opens.                                        |
+| `padding`         | `bool`          | No       | Enables mux padding.                                                                      |
+| `brutal`          | `*BrutalConfig` | No       | TCP Brutal congestion control.                                                            |
+
+### `BrutalConfig`
+
+| Field       | Type   | Required | Description                                                   |
+| ----------- | ------ | -------- | ------------------------------------------------------------ |
+| `enabled`   | `bool` | No       | Enables TCP Brutal CC (requires a Brutal-capable build).      |
+| `up_mbps`   | `int`  | No       | Upload bandwidth in Mbps.                                    |
+| `down_mbps` | `int`  | No       | Download bandwidth in Mbps.                                  |
 
 ### `RealityConfig`
 

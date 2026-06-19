@@ -246,3 +246,81 @@ func TestConfigHTTPClientsMarshalRoundTrip(t *testing.T) {
 func strPtr(s string) *string {
 	return new(s)
 }
+
+func TestConfigMultiplexFields(t *testing.T) {
+	t.Parallel()
+
+	raw := `{
+		"version": 1,
+		"endpoint": "1.2.3.4",
+		"dns": {"servers": [{"type": "local", "tag": "dns-local"}]},
+		"inbounds": [
+			{
+				"tag": "vless-in",
+				"type": "vless",
+				"listen_port": 443,
+				"multiplex": {
+					"enabled": true,
+					"padding": true,
+					"brutal": {"enabled": true, "up_mbps": 100, "down_mbps": 100}
+				},
+				"users": [{"name": "alice"}]
+			}
+		],
+		"outbounds": [
+			{
+				"type": "vless",
+				"tag": "to-a",
+				"server": "srv-a",
+				"inbound": "vless-in",
+				"multiplex": {
+					"enabled": true,
+					"protocol": "smux",
+					"max_connections": 4,
+					"min_streams": 1,
+					"padding": false
+				}
+			},
+			{"type": "direct", "tag": "direct"}
+		]
+	}`
+
+	var cfg Config
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	in := cfg.Inbounds[0]
+	if in.Multiplex == nil {
+		t.Fatal("Inbound.Multiplex is nil")
+	}
+	if !in.Multiplex.Enabled {
+		t.Error("Inbound.Multiplex.Enabled = false, want true")
+	}
+	if !in.Multiplex.Padding {
+		t.Error("Inbound.Multiplex.Padding = false, want true")
+	}
+	if in.Multiplex.Brutal == nil || !in.Multiplex.Brutal.Enabled {
+		t.Fatal("Inbound.Multiplex.Brutal not enabled")
+	}
+	if in.Multiplex.Brutal.UpMbps != 100 {
+		t.Errorf("Inbound.Multiplex.Brutal.UpMbps = %d, want 100", in.Multiplex.Brutal.UpMbps)
+	}
+
+	out := cfg.Outbounds[0]
+	if out.Multiplex == nil {
+		t.Fatal("Outbound.Multiplex is nil")
+	}
+	if !out.Multiplex.Enabled {
+		t.Error("Outbound.Multiplex.Enabled = false, want true")
+	}
+	if out.Multiplex.Protocol != "smux" {
+		t.Errorf("Outbound.Multiplex.Protocol = %q, want smux", out.Multiplex.Protocol)
+	}
+	if out.Multiplex.MaxConnections != 4 {
+		t.Errorf("Outbound.Multiplex.MaxConnections = %d, want 4", out.Multiplex.MaxConnections)
+	}
+	if out.Multiplex.MinStreams != 1 {
+		t.Errorf("Outbound.Multiplex.MinStreams = %d, want 1", out.Multiplex.MinStreams)
+	}
+}

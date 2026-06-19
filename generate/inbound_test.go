@@ -552,3 +552,58 @@ func TestBuildHysteria2InboundALPN(t *testing.T) {
 		t.Errorf("KeyPath = %q, want certs/hy.example.com.key", opts.TLS.KeyPath)
 	}
 }
+
+func TestBuildVLESSInboundMultiplex(t *testing.T) {
+	t.Parallel()
+
+	in := config.Inbound{
+		Tag:        "vless-mux",
+		Type:       "vless",
+		ListenPort: 443,
+		Users:      []config.InboundUser{{Name: "alice"}},
+		Multiplex: &config.InboundMultiplex{
+			Enabled: true,
+			Padding: true,
+			Brutal: &config.BrutalConfig{
+				Enabled:  true,
+				UpMbps:   100,
+				DownMbps: 200,
+			},
+		},
+	}
+
+	creds := InboundCredentials{
+		Users: map[string]UserCreds{"alice": {UUID: "uuid-alice"}},
+	}
+
+	inbound, err := BuildInbound(in, creds)
+	if err != nil {
+		t.Fatalf("BuildInbound: %v", err)
+	}
+
+	opts, ok := inbound.Options.(*vlessInboundOptions)
+	if !ok {
+		t.Fatalf("Options type = %T, want *vlessInboundOptions", inbound.Options)
+	}
+	if opts.Multiplex == nil {
+		t.Fatal("Multiplex is nil")
+	}
+	if !opts.Multiplex.Enabled {
+		t.Error("Multiplex.Enabled = false, want true")
+	}
+	if !opts.Multiplex.Padding {
+		t.Error("Multiplex.Padding = false, want true")
+	}
+	if opts.Multiplex.Brutal == nil {
+		t.Fatal("Multiplex.Brutal is nil")
+	}
+	if !opts.Multiplex.Brutal.Enabled {
+		t.Error("Multiplex.Brutal.Enabled = false, want true")
+	}
+	if opts.Multiplex.Brutal.UpMbps != 100 {
+		t.Errorf("Multiplex.Brutal.UpMbps = %d, want 100", opts.Multiplex.Brutal.UpMbps)
+	}
+	if opts.Multiplex.Brutal.DownMbps != 200 {
+		t.Errorf("Multiplex.Brutal.DownMbps = %d, want 200", opts.Multiplex.Brutal.DownMbps)
+	}
+}

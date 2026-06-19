@@ -185,11 +185,54 @@ func buildCrossServerVlessOutbound(
 		}
 	}
 
+	if out.Multiplex != nil {
+		mux, err := buildOutboundMultiplex(out.Multiplex)
+		if err != nil {
+			return option.Outbound{}, fmt.Errorf("outbound %q: %w", out.Tag, err)
+		}
+		opts.Multiplex = mux
+	}
 	return option.Outbound{
 		Type:    inboundTypeVLESS,
 		Tag:     out.Tag,
 		Options: &opts,
 	}, nil
+}
+
+// Multiplex (mux) protocols accepted by sing-box. An empty protocol defaults
+// to h2mux on the sing-box side.
+const (
+	muxProtocolH2mux = "h2mux"
+	muxProtocolSmux  = "smux"
+	muxProtocolYamux = "yamux"
+)
+
+// buildOutboundMultiplex converts a cheburbox OutboundMultiplex config into a
+// sing-box OutboundMultiplexOptions, validating the protocol. The protocol
+// defaults to h2mux when empty; h2mux, smux, and yamux are accepted.
+func buildOutboundMultiplex(m *config.OutboundMultiplex) (*option.OutboundMultiplexOptions, error) {
+	switch m.Protocol {
+	case "", muxProtocolH2mux, muxProtocolSmux, muxProtocolYamux:
+	default:
+		return nil, fmt.Errorf(
+			"multiplex protocol %q: must be %s, %s, or %s",
+			m.Protocol, muxProtocolH2mux, muxProtocolSmux, muxProtocolYamux,
+		)
+	}
+
+	mux := &option.OutboundMultiplexOptions{
+		Enabled:        m.Enabled,
+		Protocol:       m.Protocol,
+		MaxConnections: m.MaxConnections,
+		MinStreams:     m.MinStreams,
+		MaxStreams:     m.MaxStreams,
+		Padding:        m.Padding,
+	}
+	if m.Brutal != nil {
+		mux.Brutal = buildBrutal(m.Brutal)
+	}
+
+	return mux, nil
 }
 
 func buildCrossServerHysteria2Outbound(
