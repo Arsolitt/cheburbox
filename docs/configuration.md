@@ -12,7 +12,9 @@
   - [Multiplex](#multiplex)
   - [Hysteria2](#hysteria2)
   - [TUN](#tun)
+  - [AmneziaWG](#amneziawg)
 - [Outbounds](#outbounds)
+  - [AmneziaWG (cross-server)](#amneziawg-cross-server)
 - [Route](#route)
 - [DNS](#dns)
 - [Persistence](#persistence)
@@ -88,13 +90,14 @@ A "server" in cheburbox is one child directory of the project root containing a 
 
 ## Inbounds
 
-An inbound is a service this server listens on. Three types are supported, identified by the `type` field:
+An inbound is a service this server listens on. Four types are supported, identified by the `type` field:
 
-| `type`      | Purpose                                                            |
-| ----------- | ------------------------------------------------------------------ |
-| `vless`     | VLESS proxy with TLS or Reality.                                   |
-| `hysteria2` | Hysteria2 (QUIC) with optional obfs and masquerade.                |
-| `tun`       | OS-level TUN device (typically used on client servers).            |
+| `type`      | Purpose                                                          |
+| ----------- | ---------------------------------------------------------------- |
+| `vless`     | VLESS proxy with TLS or Reality.                                 |
+| `hysteria2` | Hysteria2 (QUIC) with optional obfs and masquerade.              |
+| `tun`       | OS-level TUN device (typically used on client servers).          |
+| `amneziawg` | AmneziaWG (WireGuard + Amnezia 2.0 obfuscation) server endpoint. |
 
 Common inbound fields:
 
@@ -299,19 +302,48 @@ The TUN inbound type exposes OS-level networking. Its fields are largely sing-bo
 
 TUN inbounds usually run with `listen_port: 0` (allowed by validation).
 
+### AmneziaWG
+
+AmneziaWG is WireGuard hardened with the Amnezia 2.0 obfuscation layer — X25519 plus generated Junk/Handshake magic-byte parameters (Jc/Jmin/Jmax/S1-S4/H1-H4) that defeat WireGuard protocol fingerprinting. Cheburbox maps an `amneziawg` inbound onto a **native sing-box `wireguard` endpoint** emitted under the top-level `endpoints[]` array, **not** under `inbounds[]`. The endpoint carries an `amnezia` sub-block; the server holds the persisted X25519 private key and the shared AmneziaWG parameters, and each declared user becomes a peer with its own generated keypair.
+
+sing-box 1.13 (the extended fork base) promoted WireGuard from an inbound/outbound to an `endpoint`, and the fork adds the `amnezia` block for AmneziaWG 2.0 obfuscation. Cheburbox builds the underlying endpoint and persists all key material so peers remain stable across regenerations (see [Persistence](#persistence)).
+
+```json
+{
+  "type": "amneziawg",
+  "tag": "awg-in",
+  "listen_port": 51820,
+  "address": ["10.7.0.1/24"],
+  "mtu": 1280,
+  "amnezia": { "protocol": "quic", "mtu": 1280 }
+}
+```
+
+| Field         | Type             | Required | Notes                                                                                          |
+| ------------- | ---------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `tag`         | `string`         | Yes      | Inbound identifier; referenced by cross-server outbounds.                                      |
+| `listen_port` | `int`            | Yes      | UDP port the WireGuard endpoint binds.                                                         |
+| `address`     | `[]string`       | Yes      | Exactly one CIDR — the tunnel subnet for this server (e.g. `["10.7.0.1/24"]`).                 |
+| `mtu`         | `int`            | No       | WireGuard interface MTU. Defaults to `1280`.                                                    |
+| `amnezia`     | `*AmneziaConfig` | No       | User-facing obfuscation preferences (`protocol`, `mtu`); raw Jc/S1/H1 params are generated.    |
+| `users`       | `[]InboundUser`  | No       | Client peers. Each `{name}` becomes a peer with its own keypair; cross-server outbounds provision additional peers. |
+
+Each declared user is provisioned as a WireGuard peer on the server endpoint. The server's `amnezia` block carries the shared obfuscation parameters (Jc/Jmin/Jmax/S1-S4/H1-H4); the client-only I1-I5 parameters are generated on each client endpoint — see [AmneziaWG (cross-server)](#amneziawg-cross-server).
+
 ## Outbounds
 
-An outbound is a destination this server can route traffic to. Five types are supported:
+An outbound is a destination this server can route traffic to. Six types are supported:
 
-| `type`     | Purpose                                                                         |
-| ---------- | ------------------------------------------------------------------------------- |
-| `direct`   | Direct connection (no proxy).                                                   |
-| `vless`    | VLESS client targeting another server's VLESS inbound.                          |
-| `hysteria2`| Hysteria2 client targeting another server's Hysteria2 inbound.                  |
-| `urltest`  | Group: pick the fastest member by latency probe.                                |
-| `selector` | Group: manually select one of several members.                                  |
+| `type`      | Purpose                                                                        |
+| ----------- | ------------------------------------------------------------------------------ |
+| `direct`    | Direct connection (no proxy).                                                  |
+| `vless`     | VLESS client targeting another server's VLESS inbound.                         |
+| `hysteria2` | Hysteria2 client targeting another server's Hysteria2 inbound.                 |
+| `amneziawg` | AmneziaWG client targeting another server's amneziawg inbound.                 |
+| `urltest`   | Group: pick the fastest member by latency probe.                               |
+| `selector`  | Group: manually select one of several members.                                 |
 
-For `vless` and `hysteria2`, cheburbox builds a cross-server reference using the `server` and `inbound` fields:
+For `vless`, `hysteria2`, and `amneziawg`, cheburbox builds a cross-server reference using the `server` and `inbound` fields:
 
 ```json
 {
@@ -342,6 +374,34 @@ For `vless` and `hysteria2`, cheburbox builds a cross-server reference using the
 | `interrupt_exist_connections` | `bool`     | urltest              |                                                                                               |
 
 Generated VLESS cross-server outbounds use UTLS fingerprint `firefox` (share links use `chrome` — see [`./links.md`](./links.md)). For Hysteria2, when persistent state holds an obfs password, the generated outbound's obfs `type` is hardcoded to `salamander`.
+
+### AmneziaWG (cross-server)
+
+An `amneziawg` outbound is a client WireGuard endpoint that tunnels traffic to another server's `amneziawg` inbound. Like VLESS and Hysteria2, it uses the `server` + `inbound` cross-server reference model: cheburbox auto-registers a peer on the target server's endpoint and reuses persisted credentials. The client **owns** its X25519 keypair (persisted in its own `config.json`), derives its public key, and registers that public key as a peer on the target server's endpoint.
+
+The client inherits the server's shared AmneziaWG parameters (Jc/Jmin/Jmax/S1-S4/H1-H4) and generates its own client-only I1-I5. Its single peer points at the server — server public key, server `endpoint` address:port, and `allowed_ips: ["0.0.0.0/0", "::/0"]`.
+
+```json
+{
+  "type": "amneziawg",
+  "tag": "awg-out",
+  "server": "awg-server",
+  "inbound": "awg-in",
+  "address": ["10.7.0.2/32"],
+  "mtu": 1280
+}
+```
+
+| Field     | Type       | Required | Notes                                                                                                              |
+| --------- | ---------- | -------- | ------------------------------------------------------------------------------------------------------------------ |
+| `tag`     | `string`   | Yes      | Outbound identifier.                                                                                               |
+| `server`  | `string`   | Yes      | Target server directory name (the `amneziawg` server).                                                             |
+| `inbound` | `string`   | Yes      | Target server's `amneziawg` inbound `tag`.                                                                         |
+| `user`    | `string`   | No       | Peer name on the target. Defaults to **this** server's directory name (see [cross-server references](#cross-server-references)). |
+| `address` | `[]string` | Yes      | Exactly one CIDR — this client's tunnel IP within the server's subnet (e.g. `["10.7.0.2/32"]`).                   |
+| `mtu`     | `int`      | No       | WireGuard interface MTU. Defaults to `1280`.                                                                       |
+
+The client endpoint registers its public key on the target server's peer list — cross-server provisioning that mirrors the VLESS user-provisioning flow. See [Persistence](#persistence) for key stability.
 
 ## Route
 
@@ -416,6 +476,7 @@ Cheburbox persists generated secrets to each server's `config.json` and re-extra
 - Hysteria2 user passwords.
 - Reality x25519 **private** keys and `short_id` values.
 - Hysteria2 obfs passwords.
+- AmneziaWG server X25519 private key, shared amnezia parameters (Jc/Jmin/Jmax/S1-S4/H1-H4), and each client peer's X25519 private key — all stored in the generated `config.json` `endpoints[]` and reused across runs.
 
 The Reality **public** key is not stored; it is derived from the private key on demand. Missing `<server>/config.json` is not an error — it just means the server has never been generated, and fresh credentials will be created.
 
@@ -423,7 +484,7 @@ Practical consequence: **changing your `cheburbox.json` will not rotate UUIDs, p
 
 ## Cross-server references
 
-When server B's outbound has `type: vless` (or `hysteria2`) with a `server` field, cheburbox treats it as a directed reference from B to that server. The reference does three things:
+When server B's outbound has `type: vless`, `hysteria2`, or `amneziawg` with a `server` field, cheburbox treats it as a directed reference from B to that server. The reference does three things:
 
 1. **Defines a dependency edge** in the project DAG, so the target is generated first (see [`./generate.md`](./generate.md)).
 2. **Auto-provisions a user** on the target inbound. The `user` field of the outbound names that user; if `user` is omitted, it defaults to **the source server's directory name**.
@@ -449,6 +510,8 @@ Example: server `client-1` proxies to `server-a`'s VLESS inbound:
 A user named `client-1` (the source directory name) is auto-added to `server-a`'s `vless-in` inbound. Specify `user: "alice"` to attach to an existing user explicitly.
 
 Self-references (a server's outbound pointing to itself) and cycles are rejected at validation time. `urltest` and `selector` group `outbounds` may only reference tags on the **same** server — cross-server members are not supported in groups.
+
+AmneziaWG cross-server outbounds participate in the same DAG/topological-generation model: the target `amneziawg` server is generated first, after which the client endpoint's public key is registered as a peer on it. The provisioning difference is that an `amneziawg` reference registers a **WireGuard peer** (the client's public key) rather than a named user.
 
 ## Field reference tables
 
@@ -508,19 +571,20 @@ Self-references (a server's outbound pointing to itself) and cycles are rejected
 
 | Field                        | Type                | Used by              | Description                                                                                    |
 | ---------------------------- | ------------------- | -------------------- | ---------------------------------------------------------------------------------------------- |
-| `type`                       | `string`            | all                  | One of `vless`, `hysteria2`, `tun`.                                                            |
+| `type`                       | `string`            | all                  | One of `vless`, `hysteria2`, `tun`, `amneziawg`.                                               |
 | `tag`                        | `string`            | all (Required)       | Inbound identifier.                                                                            |
 | `listen`                     | `string`            | all                  | Listen address (`::`, `0.0.0.0`, …).                                                            |
 | `listen_port`                | `int`               | all                  | `0..65535`. `0` is allowed (TUN).                                                              |
-| `users`                      | `[]InboundUser`     | vless / hysteria2    | Object array. Per-user `flow` honored.                                                         |
+| `users`                      | `[]InboundUser`     | vless / hysteria2 / amneziawg | Object array. Per-user `flow` honored (VLESS). For `amneziawg`, each user is a client peer.     |
 | `tls`                        | `*InboundTLS`       | vless / hysteria2    | TLS / Reality config.                                                                          |
 | `obfs`                       | `*ObfsConfig`       | hysteria2            |                                                                                                |
 | `masquerade`                 | `*MasqueradeConfig` | hysteria2            |                                                                                                |
+| `amnezia`                    | `*AmneziaConfig`    | amneziawg            | User-facing obfuscation preferences (`protocol`, `mtu`); raw params generated by `amnezigo`.   |
 | `up_mbps`                    | `int`               | hysteria2            |                                                                                                |
 | `down_mbps`                  | `int`               | hysteria2            |                                                                                                |
 | `interface_name`             | `string`            | tun                  |                                                                                                |
-| `address`                    | `[]string`          | tun                  | Parsed as `netip.Prefix`.                                                                      |
-| `mtu`                        | `int`               | tun                  |                                                                                                |
+| `address`                    | `[]string`          | tun / amneziawg      | Parsed as `netip.Prefix`. For `amneziawg`, exactly one CIDR (tunnel subnet).                    |
+| `mtu`                        | `int`               | tun / amneziawg      |                                                                                                |
 | `auto_route`                 | `bool`              | tun                  |                                                                                                |
 | `auto_redirect`              | `bool`              | tun                  |                                                                                                |
 | `strict_route`               | `bool`              | tun                  |                                                                                                |
@@ -596,18 +660,29 @@ Self-references (a server's outbound pointing to itself) and cycles are rejected
 | `url`          | `string` | any            |             |
 | `rewrite_host` | `bool`   | any            |             |
 
+### `AmneziaConfig` (AmneziaWG only)
+
+Only `protocol` and `mtu` are user-facing. The actual obfuscation parameters (Jc/Jmin/Jmax/S1-S4/H1-H4 server-side, plus I1-I5 client-side) are generated by the `amnezigo` library and persisted in `config.json` so they remain stable across runs — users never specify the raw params.
+
+| Field      | Type     | Required | Allowed values                       | Description                                               |
+| ---------- | -------- | -------- | ------------------------------------ | --------------------------------------------------------- |
+| `protocol` | `string` | No       | `quic`, `dns`, `dtls`, `stun`, `sip` | Transport the obfuscation magic bytes mimic. Default `quic`. |
+| `mtu`      | `int`    | No       |                                      | Obfuscation-layer MTU. Default `1280`.                    |
+
 ### `Outbound`
 
 | Field                         | Type       | Used by              | Description                                                                                     |
 | ----------------------------- | ---------- | -------------------- | ----------------------------------------------------------------------------------------------- |
-| `type`                        | `string`   | all                  | One of `direct`, `vless`, `hysteria2`, `urltest`, `selector`.                                   |
+| `type`                        | `string`   | all                  | One of `direct`, `vless`, `hysteria2`, `amneziawg`, `urltest`, `selector`.                      |
 | `tag`                         | `string`   | all (Required)       |                                                                                                 |
-| `server`                      | `string`   | vless / hysteria2    | Target server directory name.                                                                   |
-| `inbound`                     | `string`   | vless / hysteria2    | Target inbound `tag` on the target server.                                                      |
-| `user`                        | `string`   | vless / hysteria2    | Defaults to source server's directory name when omitted.                                        |
+| `server`                      | `string`   | vless / hysteria2 / amneziawg | Target server directory name.                                                            |
+| `inbound`                     | `string`   | vless / hysteria2 / amneziawg | Target inbound `tag` on the target server.                                               |
+| `user`                        | `string`   | vless / hysteria2 / amneziawg | Defaults to source server's directory name when omitted.                                 |
 | `flow`                        | `string`   | vless                |                                                                                                 |
 | `endpoint`                    | `string`   | vless / hysteria2    | Overrides the target server's `endpoint`.                                                       |
 | `domain_resolver`             | `string`   | vless / hysteria2    | DNS server tag for resolving the outbound hostname.                                             |
+| `address`                     | `[]string` | amneziawg            | Exactly one CIDR: this client's tunnel IP within the target server's subnet.                   |
+| `mtu`                         | `int`      | amneziawg            | WireGuard interface MTU. Default `1280`.                                                        |
 | `outbounds`                   | `[]string` | urltest / selector   | Intra-server tags only.                                                                         |
 | `url`                         | `string`   | urltest              | Probe URL.                                                                                      |
 | `interval`                    | `string`   | urltest              | Go duration (e.g. `3m`).                                                                        |
