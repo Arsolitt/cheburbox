@@ -11,7 +11,7 @@ func TestServerStateStoreAndGetCredentials(t *testing.T) {
 
 	vlessCreds := InboundCredentials{
 		Users: map[string]UserCreds{
-			"alice": {UUID: "test-uuid", Flow: "xtls-rprx-vision"},
+			"alice": {UUID: "test-uuid", Flow: FlowXTLSRPRXVision},
 		},
 	}
 
@@ -85,11 +85,11 @@ func TestServerStateEnsureUser(t *testing.T) {
 
 	state := NewServerState()
 
-	state.StoreInboundType("server-a", "vless-in", inboundTypeVLESS)
+	state.StoreInboundType("server-a", "vless-in", TypeVLESS)
 
 	existingCreds := InboundCredentials{
 		Users: map[string]UserCreds{
-			"alice": {UUID: "alice-uuid", Flow: "xtls-rprx-vision"},
+			"alice": {UUID: "alice-uuid", Flow: FlowXTLSRPRXVision},
 		},
 	}
 	state.StoreInboundCredentials("server-a", "vless-in", existingCreds)
@@ -118,7 +118,7 @@ func TestServerStateEnsureUserExisting(t *testing.T) {
 
 	existingCreds := InboundCredentials{
 		Users: map[string]UserCreds{
-			"alice": {UUID: "alice-uuid", Flow: "xtls-rprx-vision"},
+			"alice": {UUID: "alice-uuid", Flow: FlowXTLSRPRXVision},
 		},
 	}
 	state.StoreInboundCredentials("server-a", "vless-in", existingCreds)
@@ -177,14 +177,14 @@ func TestServerStateGetInboundType(t *testing.T) {
 
 	state := NewServerState()
 
-	state.StoreInboundType("server-a", "vless-in", inboundTypeVLESS)
-	state.StoreInboundType("server-a", "hy2-in", inboundTypeHysteria2)
+	state.StoreInboundType("server-a", "vless-in", TypeVLESS)
+	state.StoreInboundType("server-a", "hy2-in", TypeHysteria2)
 
 	got, ok := state.GetInboundType("server-a", "vless-in")
 	if !ok {
 		t.Fatal("expected inbound type")
 	}
-	if got != inboundTypeVLESS {
+	if got != TypeVLESS {
 		t.Errorf("inbound type = %q, want vless", got)
 	}
 
@@ -192,7 +192,7 @@ func TestServerStateGetInboundType(t *testing.T) {
 	if !ok {
 		t.Fatal("expected inbound type")
 	}
-	if got != inboundTypeHysteria2 {
+	if got != TypeHysteria2 {
 		t.Errorf("inbound type = %q, want hysteria2", got)
 	}
 

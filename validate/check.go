@@ -10,6 +10,7 @@ package validate
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,6 +22,10 @@ import (
 	"github.com/Arsolitt/cheburbox/config"
 	"github.com/Arsolitt/cheburbox/generate"
 )
+
+// serverGlobal marks a ServerResult that reports a project-wide error shared
+// across servers, such as an unresolvable dependency-graph cycle.
+const serverGlobal = "(global)"
 
 // ServerResult holds validation results for a single server.
 type ServerResult struct {
@@ -94,7 +99,7 @@ func runPhase1AndPhase2(configs map[string]config.Config, projectRoot string) ([
 
 	hasGlobalErr := false
 	for _, r := range phase1Results {
-		if r.Server == "(global)" {
+		if r.Server == serverGlobal {
 			hasGlobalErr = true
 
 			break
@@ -119,7 +124,7 @@ func runPhase1(configs map[string]config.Config) []ServerResult {
 	if err != nil {
 		return []ServerResult{
 			{
-				Server: "(global)",
+				Server: serverGlobal,
 				Errors: []error{err},
 			},
 		}
@@ -144,6 +149,8 @@ func runPhase1(configs map[string]config.Config) []ServerResult {
 		}
 
 		errs = append(errs, checkHysteria2ServerNameCollision(name, cfg)...)
+		errs = append(errs, checkAmneziaWGInbounds(name, cfg)...)
+		errs = append(errs, checkAmneziaWGOutbounds(name, cfg)...)
 		errs = append(errs, checkOutboundGroupRefs(name, cfg)...)
 		errs = append(errs, crossServerErrs[name]...)
 
@@ -204,7 +211,7 @@ func checkHysteria2ServerNameCollision(server string, cfg config.Config) []error
 	var errs []error
 
 	for _, in := range cfg.Inbounds {
-		if in.Type != "hysteria2" {
+		if in.Type != generate.TypeHysteria2 {
 			continue
 		}
 		if in.TLS == nil || in.TLS.ServerName == "" {
@@ -328,7 +335,7 @@ func checkOutboundGroupRefs(server string, cfg config.Config) []error {
 	var errs []error
 
 	for _, out := range cfg.Outbounds {
-		if out.Type != "urltest" && out.Type != "selector" {
+		if out.Type != generate.TypeURLTest && out.Type != generate.TypeSelector {
 			continue
 		}
 		if len(out.Outbounds) == 0 {
@@ -344,6 +351,114 @@ func checkOutboundGroupRefs(server string, cfg config.Config) []error {
 					ref,
 				))
 			}
+		}
+	}
+
+	return errs
+}
+
+// allowedAmneziaWGProtocols is the set of transport obfuscation protocols accepted
+// by AmneziaConfig.Protocol. It mirrors amnezigo's protocol set.
+var allowedAmneziaWGProtocols = map[string]bool{
+	"quic": true,
+	"dns":  true,
+	"dtls": true,
+	"stun": true,
+	"sip":  true,
+}
+
+// validateSingleCIDRAddress checks that addrs contains exactly one entry and that it
+// parses as a valid CIDR prefix. role qualifies the element kind in error messages
+// (e.g. "amneziawg inbound" or "amneziawg outbound").
+func validateSingleCIDRAddress(role, server, tag string, addrs []string) error {
+	if len(addrs) != 1 {
+		return fmt.Errorf(
+			"server %q: %s %q requires exactly one address CIDR, got %d",
+			server,
+			role,
+			tag,
+			len(addrs),
+		)
+	}
+
+	if _, err := netip.ParsePrefix(addrs[0]); err != nil {
+		return fmt.Errorf(
+			"server %q: %s %q has invalid address CIDR %q: %w",
+			server,
+			role,
+			tag,
+			addrs[0],
+			err,
+		)
+	}
+
+	return nil
+}
+
+// checkAmneziaWGInbounds validates Phase-1 intra-server rules for amneziawg
+// inbounds: a non-zero listen_port, exactly one CIDR address, and (when set) an
+// amnezia protocol drawn from the allowed set.
+func checkAmneziaWGInbounds(server string, cfg config.Config) []error {
+	var errs []error
+
+	for _, in := range cfg.Inbounds {
+		if in.Type != generate.TypeAmneziaWG {
+			continue
+		}
+
+		if in.ListenPort == 0 {
+			errs = append(errs, fmt.Errorf(
+				"server %q: amneziawg inbound %q requires a non-zero listen_port",
+				server,
+				in.Tag,
+			))
+		}
+
+		if err := validateSingleCIDRAddress("amneziawg inbound", server, in.Tag, in.Address); err != nil {
+			errs = append(errs, err)
+		}
+
+		if in.Amnezia != nil && in.Amnezia.Protocol != "" && !allowedAmneziaWGProtocols[in.Amnezia.Protocol] {
+			errs = append(errs, fmt.Errorf(
+				"server %q: amneziawg inbound %q has invalid amnezia protocol %q (want one of quic, dns, dtls, stun, sip)",
+				server,
+				in.Tag,
+				in.Amnezia.Protocol,
+			))
+		}
+	}
+
+	return errs
+}
+
+// checkAmneziaWGOutbounds validates Phase-1 intra-server rules for amneziawg
+// outbounds: a target server, a target inbound tag, and exactly one CIDR address.
+func checkAmneziaWGOutbounds(server string, cfg config.Config) []error {
+	var errs []error
+
+	for _, out := range cfg.Outbounds {
+		if out.Type != generate.TypeAmneziaWG {
+			continue
+		}
+
+		if out.Server == "" {
+			errs = append(errs, fmt.Errorf(
+				"server %q: amneziawg outbound %q requires a target server",
+				server,
+				out.Tag,
+			))
+		}
+
+		if out.Inbound == "" {
+			errs = append(errs, fmt.Errorf(
+				"server %q: amneziawg outbound %q requires a target inbound",
+				server,
+				out.Tag,
+			))
+		}
+
+		if err := validateSingleCIDRAddress("amneziawg outbound", server, out.Tag, out.Address); err != nil {
+			errs = append(errs, err)
 		}
 	}
 

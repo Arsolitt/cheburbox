@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bytes"
 	"encoding/json"
 	"testing"
 )
@@ -174,75 +173,6 @@ func TestConfigMarshalRoundTrip(t *testing.T) {
 	}
 }
 
-func TestConfigHTTPClientsField(t *testing.T) {
-	raw := `{
-		"version": 1,
-		"dns": {"servers": [{"type": "local", "tag": "dns-local"}]},
-		"http_clients": [{"tag": "my-client"}],
-		"route": {
-			"final": "direct",
-			"default_http_client": "my-client"
-		}
-	}`
-
-	var cfg Config
-	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
-	}
-
-	if len(cfg.HTTPClients) == 0 {
-		t.Fatal("HTTPClients is empty, want non-empty")
-	}
-	if cfg.Route == nil {
-		t.Fatal("Route is nil")
-	}
-	if cfg.Route.DefaultHTTPClient != "my-client" {
-		t.Errorf("Route.DefaultHTTPClient = %q, want %q", cfg.Route.DefaultHTTPClient, "my-client")
-	}
-}
-
-func TestConfigHTTPClientsMarshalRoundTrip(t *testing.T) {
-	httpClients := json.RawMessage(`[{"tag":"my-client"}]`)
-	cfg := Config{
-		Version: 1,
-		DNS: DNS{
-			Servers: []DNSServer{{Type: "local", Tag: "dns-local"}},
-		},
-		HTTPClients: httpClients,
-		Route: &Route{
-			Final:             "direct",
-			DefaultHTTPClient: "my-client",
-		},
-	}
-
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal failed: %v", err)
-	}
-
-	var cfg2 Config
-	if err := json.Unmarshal(data, &cfg2); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
-	}
-
-	var gotBuf, wantBuf bytes.Buffer
-	if err := json.Compact(&gotBuf, cfg2.HTTPClients); err != nil {
-		t.Fatalf("compact got: %v", err)
-	}
-	if err := json.Compact(&wantBuf, httpClients); err != nil {
-		t.Fatalf("compact want: %v", err)
-	}
-	if gotBuf.String() != wantBuf.String() {
-		t.Errorf("round-trip HTTPClients = %s, want %s", gotBuf.String(), wantBuf.String())
-	}
-	if cfg2.Route == nil {
-		t.Fatal("Route is nil after round-trip")
-	}
-	if cfg2.Route.DefaultHTTPClient != "my-client" {
-		t.Errorf("round-trip Route.DefaultHTTPClient = %q, want %q", cfg2.Route.DefaultHTTPClient, "my-client")
-	}
-}
-
 func strPtr(s string) *string {
 	return new(s)
 }
@@ -322,5 +252,95 @@ func TestConfigMultiplexFields(t *testing.T) {
 	}
 	if out.Multiplex.MinStreams != 1 {
 		t.Errorf("Outbound.Multiplex.MinStreams = %d, want 1", out.Multiplex.MinStreams)
+	}
+}
+
+func TestConfigAmneziaWGRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Version:  1,
+		Endpoint: "10.0.0.1",
+		DNS: DNS{
+			Servers: []DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Inbounds: []Inbound{
+			{
+				Tag:        "awg-in",
+				Type:       "amneziawg",
+				ListenPort: 51820,
+				Address:    []string{"10.0.0.1/24"},
+				MTU:        1280,
+				Amnezia: &AmneziaConfig{
+					Protocol: "quic",
+					MTU:      1280,
+				},
+			},
+		},
+		Outbounds: []Outbound{
+			{
+				Type:    "amneziawg",
+				Tag:     "awg-out",
+				Server:  "exit-server",
+				Inbound: "awg-in",
+				Address: []string{"10.0.0.5/32"},
+				MTU:     1280,
+			},
+			{Type: "direct", Tag: "direct"},
+		},
+		Route: &Route{
+			Final:               "direct",
+			AutoDetectInterface: true,
+		},
+	}
+
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var cfg2 Config
+	if err := json.Unmarshal(data, &cfg2); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	in := cfg2.Inbounds[0]
+	if in.Type != "amneziawg" {
+		t.Errorf("inbound Type = %q, want amneziawg", in.Type)
+	}
+	if in.ListenPort != 51820 {
+		t.Errorf("inbound ListenPort = %d, want 51820", in.ListenPort)
+	}
+	if len(in.Address) != 1 || in.Address[0] != "10.0.0.1/24" {
+		t.Errorf("inbound Address = %v, want [10.0.0.1/24]", in.Address)
+	}
+	if in.MTU != 1280 {
+		t.Errorf("inbound MTU = %d, want 1280", in.MTU)
+	}
+	if in.Amnezia == nil {
+		t.Fatal("inbound Amnezia is nil after round-trip")
+	}
+	if in.Amnezia.Protocol != "quic" {
+		t.Errorf("inbound Amnezia.Protocol = %q, want quic", in.Amnezia.Protocol)
+	}
+	if in.Amnezia.MTU != 1280 {
+		t.Errorf("inbound Amnezia.MTU = %d, want 1280", in.Amnezia.MTU)
+	}
+
+	out := cfg2.Outbounds[0]
+	if out.Type != "amneziawg" {
+		t.Errorf("outbound Type = %q, want amneziawg", out.Type)
+	}
+	if out.Server != "exit-server" {
+		t.Errorf("outbound Server = %q, want exit-server", out.Server)
+	}
+	if out.Inbound != "awg-in" {
+		t.Errorf("outbound Inbound = %q, want awg-in", out.Inbound)
+	}
+	if len(out.Address) != 1 || out.Address[0] != "10.0.0.5/32" {
+		t.Errorf("outbound Address = %v, want [10.0.0.5/32]", out.Address)
+	}
+	if out.MTU != 1280 {
+		t.Errorf("outbound MTU = %d, want 1280", out.MTU)
 	}
 }

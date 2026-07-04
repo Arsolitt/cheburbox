@@ -45,19 +45,17 @@ type hysteria2InboundOptions = option.Hysteria2InboundOptions
 type tunInboundOptions = option.TunInboundOptions
 
 const (
-	inboundTypeVLESS     = "vless"
-	inboundTypeHysteria2 = "hysteria2"
-	masqueradeTypeProxy  = "proxy"
+	masqueradeTypeProxy = "proxy"
 )
 
 // BuildInbound converts a cheburbox Inbound config and resolved credentials into a sing-box Inbound option.
 func BuildInbound(in config.Inbound, creds InboundCredentials) (option.Inbound, error) {
 	switch in.Type {
-	case inboundTypeVLESS:
+	case TypeVLESS:
 		return buildVLESSInbound(in, creds)
-	case inboundTypeHysteria2:
+	case TypeHysteria2:
 		return buildHysteria2Inbound(in, creds)
-	case "tun":
+	case TypeTun:
 		return buildTunInbound(in)
 	default:
 		return option.Inbound{}, fmt.Errorf("unknown inbound type: %s", in.Type)

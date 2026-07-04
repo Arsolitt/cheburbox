@@ -319,6 +319,24 @@ linters:
         # https://github.com/godoc-lint/godoc-lint?tab=readme-ov-file#no-unused-link
         - no-unused-link
 
+    gomoddirectives:
+      # sing-box-extended fork carries its identity via replace directives to
+      # github.com/shtorm-7/* (the fork keeps the upstream module path
+      # github.com/sagernet/sing-box). Go does not apply a dependency's own
+      # replace directives to the main module, so all transitive extended
+      # forks must be mirrored here verbatim. See the fork's go.mod.
+      replace-allow-list:
+        - github.com/sagernet/sing-box
+        - github.com/sagernet/wireguard-go
+        - github.com/sagernet/tailscale
+        - github.com/sagernet/sing-mux
+        - github.com/ameshkov/dnscrypt/v2
+        - github.com/sagernet/sing-vmess
+        - github.com/dolonet/mtg-multi
+        - github.com/Diniboy1123/connect-ip-go
+        - github.com/shtorm-7/go-cache/v2
+        - github.com/sagernet/sing
+
     govet:
       # Enable all analyzers.
       # Default: false

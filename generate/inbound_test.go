@@ -152,7 +152,7 @@ func TestBuildHysteria2Inbound(t *testing.T) {
 			ServerName: "hy.example.com",
 		},
 		Obfs: &config.ObfsConfig{
-			Type:     "salamander",
+			Type:     ObfsSalamander,
 			Password: "obfs-pw",
 		},
 		Masq: &config.MasqueradeConfig{
@@ -198,7 +198,7 @@ func TestBuildHysteria2Inbound(t *testing.T) {
 	if opts.Obfs == nil {
 		t.Fatal("Obfs is nil")
 	}
-	if opts.Obfs.Type != "salamander" {
+	if opts.Obfs.Type != ObfsSalamander {
 		t.Errorf("Obfs.Type = %q, want salamander", opts.Obfs.Type)
 	}
 
@@ -260,7 +260,7 @@ func TestBuildTunInbound(t *testing.T) {
 
 	in := config.Inbound{
 		Tag:                    "tun-in",
-		Type:                   "tun",
+		Type:                   TypeTun,
 		InterfaceName:          "sing-box",
 		Address:                []string{"172.19.0.1/30"},
 		MTU:                    1500,
@@ -280,7 +280,7 @@ func TestBuildTunInbound(t *testing.T) {
 	if inbound.Tag != "tun-in" {
 		t.Errorf("Tag = %q, want tun-in", inbound.Tag)
 	}
-	if inbound.Type != "tun" {
+	if inbound.Type != TypeTun {
 		t.Errorf("Type = %q, want tun", inbound.Type)
 	}
 
@@ -326,7 +326,7 @@ func TestBuildTunInboundMultipleAddresses(t *testing.T) {
 
 	in := config.Inbound{
 		Tag:     "tun-multi",
-		Type:    "tun",
+		Type:    TypeTun,
 		Address: []string{"172.19.0.1/30", "fd00::1/126"},
 	}
 
@@ -384,7 +384,7 @@ func TestBuildHysteria2InboundInvalidAddress(t *testing.T) {
 
 	in := config.Inbound{
 		Tag:     "tun-bad-addr",
-		Type:    "tun",
+		Type:    TypeTun,
 		Address: []string{"not-a-cidr"},
 	}
 
@@ -404,7 +404,7 @@ func TestBuildHysteria2InboundInvalidRouteExcludeAddress(t *testing.T) {
 
 	in := config.Inbound{
 		Tag:                 "tun-bad-route",
-		Type:                "tun",
+		Type:                TypeTun,
 		RouteExcludeAddress: []string{"999.999.999.999/8"},
 	}
 
@@ -427,14 +427,14 @@ func TestBuildVLESSInboundPerUserFlow(t *testing.T) {
 		Type:       "vless",
 		ListenPort: 443,
 		Users: []config.InboundUser{
-			{Name: "desktop", Flow: "xtls-rprx-vision"},
+			{Name: "desktop", Flow: FlowXTLSRPRXVision},
 			{Name: "phone"},
 		},
 	}
 
 	creds := InboundCredentials{
 		Users: map[string]UserCreds{
-			"desktop": {UUID: "uuid-desktop", Flow: "xtls-rprx-vision"},
+			"desktop": {UUID: "uuid-desktop", Flow: FlowXTLSRPRXVision},
 			"phone":   {UUID: "uuid-phone"},
 		},
 	}
@@ -453,7 +453,7 @@ func TestBuildVLESSInboundPerUserFlow(t *testing.T) {
 	for _, u := range opts.Users {
 		usersByName[u.Name] = u
 	}
-	if usersByName["desktop"].Flow != "xtls-rprx-vision" {
+	if usersByName["desktop"].Flow != FlowXTLSRPRXVision {
 		t.Errorf("desktop Flow = %q, want xtls-rprx-vision", usersByName["desktop"].Flow)
 	}
 	if usersByName["phone"].Flow != "" {

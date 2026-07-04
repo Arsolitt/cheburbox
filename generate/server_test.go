@@ -251,7 +251,7 @@ func TestGenerateUserCredsDefaultFlow(t *testing.T) {
 	if creds.UUID == "" {
 		t.Error("expected non-empty UUID for vless")
 	}
-	if creds.Flow != "xtls-rprx-vision" {
+	if creds.Flow != FlowXTLSRPRXVision {
 		t.Errorf("Flow = %q, want xtls-rprx-vision", creds.Flow)
 	}
 }
@@ -278,7 +278,7 @@ func TestResolveCredentials(t *testing.T) {
 				Tag:   "hy2-in",
 				Type:  "hysteria2",
 				Users: []config.InboundUser{{Name: "charlie"}},
-				Obfs:  &config.ObfsConfig{Type: "salamander"},
+				Obfs:  &config.ObfsConfig{Type: ObfsSalamander},
 			},
 		},
 	}
@@ -457,7 +457,7 @@ func TestResolveCredentialsWithPersistedObfs(t *testing.T) {
 				Tag:   "hy2-in",
 				Type:  "hysteria2",
 				Users: []config.InboundUser{{Name: "alice"}},
-				Obfs:  &config.ObfsConfig{Type: "salamander"},
+				Obfs:  &config.ObfsConfig{Type: ObfsSalamander},
 			},
 		},
 	}
@@ -763,63 +763,6 @@ func TestGenerateServerCompilesRuleSets(t *testing.T) {
 	}
 }
 
-func TestGenerateServerHTTPClientsPassthrough(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	cfg := config.Config{
-		Version:  1,
-		Endpoint: "1.2.3.4",
-		DNS: config.DNS{
-			Final:   new("dns-local"),
-			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
-		},
-		Outbounds: []config.Outbound{
-			{Type: "direct", Tag: "direct"},
-		},
-		HTTPClients: json.RawMessage(`[{"tag":"my-client"}]`),
-		Route: &config.Route{
-			Final:             "direct",
-			DefaultHTTPClient: "my-client",
-		},
-	}
-
-	result, err := GenerateServer(dir, cfg, GenerateConfig{})
-	if err != nil {
-		t.Fatalf("GenerateServer: %v", err)
-	}
-
-	configFile := findFile(result.Files, "config.json")
-	if configFile == nil {
-		t.Fatal("config.json not found in result files")
-	}
-
-	var parsed map[string]any
-	if err := json.Unmarshal(configFile.Content, &parsed); err != nil {
-		t.Fatalf("parse generated config.json: %v", err)
-	}
-
-	clients, ok := parsed["http_clients"].([]any)
-	if !ok || len(clients) == 0 {
-		t.Fatal("http_clients missing or empty in generated config")
-	}
-	client, ok := clients[0].(map[string]any)
-	if !ok {
-		t.Fatal("http_clients[0] is not an object")
-	}
-	if client["tag"] != "my-client" {
-		t.Errorf("http_clients[0].tag = %v, want %q", client["tag"], "my-client")
-	}
-
-	route, ok := parsed["route"].(map[string]any)
-	if !ok {
-		t.Fatal("route section missing in generated config")
-	}
-	if route["default_http_client"] != "my-client" {
-		t.Errorf("route.default_http_client = %v, want %q", route["default_http_client"], "my-client")
-	}
-}
-
 func findFile(files []FileOutput, name string) *FileOutput {
 	for i := range files {
 		if files[i].Path == name {
@@ -844,7 +787,7 @@ func TestGenerateAll(t *testing.T) {
 		Inbounds: []config.Inbound{
 			{
 				Tag:        "vless-in",
-				Type:       inboundTypeVLESS,
+				Type:       TypeVLESS,
 				ListenPort: 443,
 				Users:      []config.InboundUser{{Name: "proxy-server"}},
 				TLS: &config.InboundTLS{
@@ -858,7 +801,7 @@ func TestGenerateAll(t *testing.T) {
 			},
 		},
 		Outbounds: []config.Outbound{
-			{Type: outboundTypeDirect, Tag: "direct"},
+			{Type: TypeDirect, Tag: "direct"},
 		},
 	})
 
@@ -869,9 +812,9 @@ func TestGenerateAll(t *testing.T) {
 			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
 		},
 		Outbounds: []config.Outbound{
-			{Type: outboundTypeDirect, Tag: "direct"},
+			{Type: TypeDirect, Tag: "direct"},
 			{
-				Type:    inboundTypeVLESS,
+				Type:    TypeVLESS,
 				Tag:     "exit-vless",
 				Server:  "exit-server",
 				Inbound: "vless-in",
@@ -970,7 +913,7 @@ func TestGenerateAllCycle(t *testing.T) {
 			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
 		},
 		Outbounds: []config.Outbound{
-			{Type: inboundTypeVLESS, Tag: "out", Server: "srv-b", Inbound: "vless-in"},
+			{Type: TypeVLESS, Tag: "out", Server: "srv-b", Inbound: "vless-in"},
 		},
 	})
 
@@ -981,7 +924,7 @@ func TestGenerateAllCycle(t *testing.T) {
 			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
 		},
 		Outbounds: []config.Outbound{
-			{Type: inboundTypeVLESS, Tag: "out", Server: "srv-a", Inbound: "vless-in"},
+			{Type: TypeVLESS, Tag: "out", Server: "srv-a", Inbound: "vless-in"},
 		},
 	})
 
@@ -1006,22 +949,22 @@ func TestCrossServerUserRefs(t *testing.T) {
 	configs := map[string]config.Config{
 		"exit-server": {
 			Inbounds: []config.Inbound{
-				{Tag: "vless-in", Type: inboundTypeVLESS, Users: []config.InboundUser{{Name: "declared-user"}}},
+				{Tag: "vless-in", Type: TypeVLESS, Users: []config.InboundUser{{Name: "declared-user"}}},
 			},
 		},
 		"proxy-a": {
 			Outbounds: []config.Outbound{
-				{Type: inboundTypeVLESS, Tag: "out1", Server: "exit-server", Inbound: "vless-in", User: "proxy-a"},
+				{Type: TypeVLESS, Tag: "out1", Server: "exit-server", Inbound: "vless-in", User: "proxy-a"},
 			},
 		},
 		"proxy-b": {
 			Outbounds: []config.Outbound{
-				{Type: inboundTypeVLESS, Tag: "out1", Server: "exit-server", Inbound: "vless-in"},
+				{Type: TypeVLESS, Tag: "out1", Server: "exit-server", Inbound: "vless-in"},
 			},
 		},
 		"unrelated": {
 			Outbounds: []config.Outbound{
-				{Type: outboundTypeDirect, Tag: "direct"},
+				{Type: TypeDirect, Tag: "direct"},
 			},
 		},
 	}
@@ -1075,14 +1018,14 @@ func TestResolveCredentialsFullResetRegeneratesAll(t *testing.T) {
 				Tag:   "hy2-in",
 				Type:  "hysteria2",
 				Users: []config.InboundUser{{Name: "bob"}},
-				Obfs:  &config.ObfsConfig{Type: "salamander"},
+				Obfs:  &config.ObfsConfig{Type: ObfsSalamander},
 			},
 		},
 	}
 
 	persisted := config.EmptyPersistedCredentials()
 	persisted.InboundUsers["vless-in"] = map[string]config.UserCredentials{
-		"alice": {UUID: "old-uuid", Flow: "xtls-rprx-vision"},
+		"alice": {UUID: "old-uuid", Flow: FlowXTLSRPRXVision},
 	}
 	persisted.RealityKeys["vless-in"] = config.RealityKeyPair{
 		PrivateKey: "old-priv",
@@ -1188,7 +1131,7 @@ func TestResolveCredentialsOrphanPreservesCreds(t *testing.T) {
 
 	persisted := config.EmptyPersistedCredentials()
 	persisted.InboundUsers["vless-in"] = map[string]config.UserCredentials{
-		"alice": {UUID: "alice-uuid", Flow: "xtls-rprx-vision"},
+		"alice": {UUID: "alice-uuid", Flow: FlowXTLSRPRXVision},
 	}
 	persisted.RealityKeys["vless-in"] = config.RealityKeyPair{
 		PrivateKey: "persisted-priv",

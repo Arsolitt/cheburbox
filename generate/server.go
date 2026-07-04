@@ -177,13 +177,13 @@ func findPersistedUser(
 
 func generateUserCreds(inboundType string) (UserCreds, error) {
 	switch inboundType {
-	case inboundTypeVLESS:
+	case TypeVLESS:
 		uuid, err := GenerateUUID()
 		if err != nil {
 			return UserCreds{}, fmt.Errorf("generate vless uuid: %w", err)
 		}
-		return UserCreds{UUID: uuid, Flow: "xtls-rprx-vision"}, nil
-	case inboundTypeHysteria2:
+		return UserCreds{UUID: uuid, Flow: FlowXTLSRPRXVision}, nil
+	case TypeHysteria2:
 		pw, err := GeneratePassword()
 		if err != nil {
 			return UserCreds{}, fmt.Errorf("generate hysteria2 password: %w", err)
@@ -199,7 +199,7 @@ func resolveRealityKeys(
 	persisted config.PersistedCredentials,
 	creds *InboundCredentials,
 ) error {
-	if in.Type != inboundTypeVLESS || in.TLS == nil || in.TLS.Reality == nil {
+	if in.Type != TypeVLESS || in.TLS == nil || in.TLS.Reality == nil {
 		return nil
 	}
 
@@ -241,7 +241,7 @@ func resolveObfsPassword(
 	persisted config.PersistedCredentials,
 	creds *InboundCredentials,
 ) error {
-	if in.Type != inboundTypeHysteria2 || in.Obfs == nil {
+	if in.Type != TypeHysteria2 || in.Obfs == nil {
 		return nil
 	}
 
@@ -272,7 +272,7 @@ func resolveCertificates(dir string, cfg config.Config, fullReset bool) ([]FileO
 	var files []FileOutput
 
 	for _, in := range cfg.Inbounds {
-		if in.Type != inboundTypeHysteria2 || in.TLS == nil || in.TLS.ServerName == "" {
+		if in.Type != TypeHysteria2 || in.TLS == nil || in.TLS.ServerName == "" {
 			continue
 		}
 
@@ -354,14 +354,6 @@ func assembleOptions(
 		Outbounds: outbounds,
 	}
 
-	if len(cfg.HTTPClients) > 0 {
-		httpClients, err := unmarshalHTTPClients(cfg.HTTPClients)
-		if err != nil {
-			return nil, err
-		}
-		opts.HTTPClients = httpClients
-	}
-
 	if len(cfg.Log) > 0 {
 		logOpts, err := unmarshalLog(cfg.Log)
 		if err != nil {
@@ -377,14 +369,6 @@ func assembleOptions(
 	addBoilerplate(&opts, cfg)
 
 	return &opts, nil
-}
-
-func unmarshalHTTPClients(raw json.RawMessage) ([]option.HTTPClient, error) {
-	var clients []option.HTTPClient
-	if err := json.Unmarshal(raw, &clients); err != nil {
-		return nil, fmt.Errorf("unmarshal http_clients: %w", err)
-	}
-	return clients, nil
 }
 
 func buildInbounds(inbounds []config.Inbound, credsMap map[string]InboundCredentials) ([]option.Inbound, error) {
@@ -553,7 +537,7 @@ func crossServerUserRefs(
 			if out.Server == "" {
 				continue
 			}
-			if out.Type != inboundTypeVLESS && out.Type != inboundTypeHysteria2 {
+			if out.Type != TypeVLESS && out.Type != TypeHysteria2 {
 				continue
 			}
 
@@ -757,7 +741,7 @@ func provisionCrossServerUsers(cfg config.Config, state *ServerState, serverName
 		if out.Server == "" {
 			continue
 		}
-		if out.Type != inboundTypeVLESS && out.Type != inboundTypeHysteria2 {
+		if out.Type != TypeVLESS && out.Type != TypeHysteria2 {
 			continue
 		}
 
@@ -858,7 +842,7 @@ func resolveCertificatesWithState(
 	}
 
 	for _, in := range cfg.Inbounds {
-		if in.Type != inboundTypeHysteria2 || in.TLS == nil || in.TLS.ServerName == "" {
+		if in.Type != TypeHysteria2 || in.TLS == nil || in.TLS.ServerName == "" {
 			continue
 		}
 

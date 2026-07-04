@@ -49,7 +49,7 @@ func TestIntegrationFullGeneration(t *testing.T) {
 				UpMbps:     1000,
 				DownMbps:   1000,
 				TLS:        &config.InboundTLS{ServerName: "spain.info"},
-				Obfs:       &config.ObfsConfig{Type: "salamander"},
+				Obfs:       &config.ObfsConfig{Type: ObfsSalamander},
 				Masq: &config.MasqueradeConfig{
 					Type:        "proxy",
 					URL:         "https://spain.info",
@@ -59,7 +59,7 @@ func TestIntegrationFullGeneration(t *testing.T) {
 			},
 			{
 				Tag:                 "tun-in",
-				Type:                "tun",
+				Type:                TypeTun,
 				InterfaceName:       "sing-box",
 				Address:             []string{"172.19.0.1/30"},
 				MTU:                 1500,
@@ -72,7 +72,7 @@ func TestIntegrationFullGeneration(t *testing.T) {
 		Outbounds: []config.Outbound{
 			{Type: "direct", Tag: "direct"},
 			{
-				Type:      "urltest",
+				Type:      TypeURLTest,
 				Tag:       "proxy",
 				Outbounds: []string{"vless-ref", "hy2-ref"},
 				URL:       "https://www.gstatic.com/generate_204",
@@ -197,7 +197,7 @@ func TestIntegrationMultiServerCrossServer(t *testing.T) {
 		Inbounds: []config.Inbound{
 			{
 				Tag:        "vless-in",
-				Type:       inboundTypeVLESS,
+				Type:       TypeVLESS,
 				ListenPort: 443,
 				Users:      []config.InboundUser{{Name: "proxy-server"}},
 				TLS: &config.InboundTLS{
@@ -211,14 +211,14 @@ func TestIntegrationMultiServerCrossServer(t *testing.T) {
 			},
 			{
 				Tag:        "hy2-in",
-				Type:       inboundTypeHysteria2,
+				Type:       TypeHysteria2,
 				ListenPort: 8443,
 				TLS:        &config.InboundTLS{ServerName: "hy.example.com"},
 				Users:      []config.InboundUser{{Name: "proxy-server"}},
 			},
 		},
 		Outbounds: []config.Outbound{
-			{Type: outboundTypeDirect, Tag: "direct"},
+			{Type: TypeDirect, Tag: "direct"},
 		},
 	}
 	exitData, _ := json.Marshal(exitCfg)
@@ -238,16 +238,16 @@ func TestIntegrationMultiServerCrossServer(t *testing.T) {
 			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
 		},
 		Outbounds: []config.Outbound{
-			{Type: outboundTypeDirect, Tag: "direct"},
+			{Type: TypeDirect, Tag: "direct"},
 			{
-				Type:    inboundTypeVLESS,
+				Type:    TypeVLESS,
 				Tag:     "exit-vless",
 				Server:  "exit-server",
 				Inbound: "vless-in",
 				User:    "proxy-server",
 			},
 			{
-				Type:    inboundTypeHysteria2,
+				Type:    TypeHysteria2,
 				Tag:     "exit-hy",
 				Server:  "exit-server",
 				Inbound: "hy2-in",

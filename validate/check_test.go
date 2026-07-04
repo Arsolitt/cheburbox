@@ -16,8 +16,8 @@ func TestCheckHysteria2ServerNameCollision(t *testing.T) {
 
 	cfg := config.Config{
 		Inbounds: []config.Inbound{
-			{Type: "hysteria2", Tag: "hy2-a", TLS: &config.InboundTLS{ServerName: "example.com"}},
-			{Type: "hysteria2", Tag: "hy2-b", TLS: &config.InboundTLS{ServerName: "example.com"}},
+			{Type: generate.TypeHysteria2, Tag: "hy2-a", TLS: &config.InboundTLS{ServerName: "example.com"}},
+			{Type: generate.TypeHysteria2, Tag: "hy2-b", TLS: &config.InboundTLS{ServerName: "example.com"}},
 		},
 	}
 
@@ -40,8 +40,8 @@ func TestCheckHysteria2ServerNameCollisionNoConflict(t *testing.T) {
 
 	cfg := config.Config{
 		Inbounds: []config.Inbound{
-			{Type: "hysteria2", Tag: "hy2-a", TLS: &config.InboundTLS{ServerName: "alpha.com"}},
-			{Type: "hysteria2", Tag: "hy2-b", TLS: &config.InboundTLS{ServerName: "beta.com"}},
+			{Type: generate.TypeHysteria2, Tag: "hy2-a", TLS: &config.InboundTLS{ServerName: "alpha.com"}},
+			{Type: generate.TypeHysteria2, Tag: "hy2-b", TLS: &config.InboundTLS{ServerName: "beta.com"}},
 		},
 	}
 
@@ -56,8 +56,8 @@ func TestCheckHysteria2ServerNameCollisionNoTLS(t *testing.T) {
 
 	cfg := config.Config{
 		Inbounds: []config.Inbound{
-			{Type: "hysteria2", Tag: "hy2-a"},
-			{Type: "hysteria2", Tag: "hy2-b"},
+			{Type: generate.TypeHysteria2, Tag: "hy2-a"},
+			{Type: generate.TypeHysteria2, Tag: "hy2-b"},
 		},
 	}
 
@@ -87,9 +87,9 @@ func TestCheckHysteria2ServerNameCollisionThreeWay(t *testing.T) {
 
 	cfg := config.Config{
 		Inbounds: []config.Inbound{
-			{Type: "hysteria2", Tag: "hy2-a", TLS: &config.InboundTLS{ServerName: "shared.com"}},
-			{Type: "hysteria2", Tag: "hy2-b", TLS: &config.InboundTLS{ServerName: "other.com"}},
-			{Type: "hysteria2", Tag: "hy2-c", TLS: &config.InboundTLS{ServerName: "shared.com"}},
+			{Type: generate.TypeHysteria2, Tag: "hy2-a", TLS: &config.InboundTLS{ServerName: "shared.com"}},
+			{Type: generate.TypeHysteria2, Tag: "hy2-b", TLS: &config.InboundTLS{ServerName: "other.com"}},
+			{Type: generate.TypeHysteria2, Tag: "hy2-c", TLS: &config.InboundTLS{ServerName: "shared.com"}},
 		},
 	}
 
@@ -109,15 +109,15 @@ func TestCheckOutboundInboundRefs(t *testing.T) {
 	configs := map[string]config.Config{
 		"server-a": {
 			Inbounds: []config.Inbound{
-				{Type: "hysteria2", Tag: "hy2-in"},
+				{Type: generate.TypeHysteria2, Tag: "hy2-in"},
 			},
 			Outbounds: []config.Outbound{
-				{Type: "hysteria2", Tag: "cross-out", Server: "server-b", Inbound: "hy2-in-b"},
+				{Type: generate.TypeHysteria2, Tag: "cross-out", Server: "server-b", Inbound: "hy2-in-b"},
 			},
 		},
 		"server-b": {
 			Inbounds: []config.Inbound{
-				{Type: "hysteria2", Tag: "hy2-in-b"},
+				{Type: generate.TypeHysteria2, Tag: "hy2-in-b"},
 			},
 		},
 	}
@@ -134,12 +134,12 @@ func TestCheckOutboundInboundRefsMissing(t *testing.T) {
 	configs := map[string]config.Config{
 		"server-a": {
 			Outbounds: []config.Outbound{
-				{Type: "hysteria2", Tag: "cross-out", Server: "server-b", Inbound: "nonexistent"},
+				{Type: generate.TypeHysteria2, Tag: "cross-out", Server: "server-b", Inbound: "nonexistent"},
 			},
 		},
 		"server-b": {
 			Inbounds: []config.Inbound{
-				{Type: "hysteria2", Tag: "hy2-in-b"},
+				{Type: generate.TypeHysteria2, Tag: "hy2-in-b"},
 			},
 		},
 	}
@@ -178,7 +178,7 @@ func TestCheckOutboundGroupRefsValid(t *testing.T) {
 	cfg := config.Config{
 		Outbounds: []config.Outbound{
 			{Type: "direct", Tag: "direct"},
-			{Type: "urltest", Tag: "group-a", Outbounds: []string{"direct"}},
+			{Type: generate.TypeURLTest, Tag: "group-a", Outbounds: []string{"direct"}},
 			{Type: "selector", Tag: "group-b", Outbounds: []string{"direct", "group-a"}},
 		},
 	}
@@ -195,7 +195,7 @@ func TestCheckOutboundGroupRefsInvalid(t *testing.T) {
 	cfg := config.Config{
 		Outbounds: []config.Outbound{
 			{Type: "direct", Tag: "direct"},
-			{Type: "urltest", Tag: "group-a", Outbounds: []string{"direct", "unknown-out"}},
+			{Type: generate.TypeURLTest, Tag: "group-a", Outbounds: []string{"direct", "unknown-out"}},
 		},
 	}
 
@@ -215,7 +215,7 @@ func TestCheckOutboundGroupRefsNonGroupOutbound(t *testing.T) {
 	cfg := config.Config{
 		Outbounds: []config.Outbound{
 			{Type: "direct", Tag: "direct"},
-			{Type: "hysteria2", Tag: "hy2-out"},
+			{Type: generate.TypeHysteria2, Tag: "hy2-out"},
 		},
 	}
 
@@ -230,7 +230,7 @@ func TestCheckOutboundGroupRefsEmptyOutbounds(t *testing.T) {
 
 	cfg := config.Config{
 		Outbounds: []config.Outbound{
-			{Type: "urltest", Tag: "group-a", Outbounds: []string{}},
+			{Type: generate.TypeURLTest, Tag: "group-a", Outbounds: []string{}},
 		},
 	}
 
@@ -433,8 +433,8 @@ func TestValidateAllWithCycle(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 
-	if results[0].Server != "(global)" {
-		t.Errorf("expected server %q, got %q", "(global)", results[0].Server)
+	if results[0].Server != serverGlobal {
+		t.Errorf("expected server %q, got %q", serverGlobal, results[0].Server)
 	}
 
 	if !results[0].Failed() {
@@ -629,5 +629,141 @@ func TestValidateAllPhase2SkippedWithoutConfig(t *testing.T) {
 			len(results[0].Warnings),
 			results[0].Warnings,
 		)
+	}
+}
+
+func TestCheckAmneziaWGInboundValid(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Inbounds: []config.Inbound{
+			{
+				Type:       generate.TypeAmneziaWG,
+				Tag:        "awg-in",
+				ListenPort: 51820,
+				Address:    []string{"10.0.0.1/24"},
+				Amnezia:    &config.AmneziaConfig{Protocol: "quic"},
+			},
+		},
+	}
+
+	if errs := checkAmneziaWGInbounds("srv1", cfg); len(errs) != 0 {
+		t.Fatalf("expected 0 errors, got %d: %v", len(errs), errs)
+	}
+}
+
+func TestCheckAmneziaWGInboundMissingListenPort(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Inbounds: []config.Inbound{
+			{
+				Type:    generate.TypeAmneziaWG,
+				Tag:     "awg-in",
+				Address: []string{"10.0.0.1/24"},
+			},
+		},
+	}
+
+	errs := checkAmneziaWGInbounds("srv1", cfg)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+	}
+
+	if !strings.Contains(errs[0].Error(), "listen_port") {
+		t.Errorf("error should mention listen_port, got: %v", errs[0])
+	}
+}
+
+func TestCheckAmneziaWGInboundBadCIDR(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Inbounds: []config.Inbound{
+			{
+				Type:       generate.TypeAmneziaWG,
+				Tag:        "awg-in",
+				ListenPort: 51820,
+				Address:    []string{"not-a-cidr"},
+			},
+		},
+	}
+
+	errs := checkAmneziaWGInbounds("srv1", cfg)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+	}
+
+	if !strings.Contains(errs[0].Error(), "address CIDR") {
+		t.Errorf("error should mention address CIDR, got: %v", errs[0])
+	}
+}
+
+func TestCheckAmneziaWGInboundInvalidProtocol(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Inbounds: []config.Inbound{
+			{
+				Type:       generate.TypeAmneziaWG,
+				Tag:        "awg-in",
+				ListenPort: 51820,
+				Address:    []string{"10.0.0.1/24"},
+				Amnezia:    &config.AmneziaConfig{Protocol: "bogus"},
+			},
+		},
+	}
+
+	errs := checkAmneziaWGInbounds("srv1", cfg)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+	}
+
+	if !strings.Contains(errs[0].Error(), "bogus") {
+		t.Errorf("error should mention invalid protocol, got: %v", errs[0])
+	}
+}
+
+func TestCheckAmneziaWGOutboundValid(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Outbounds: []config.Outbound{
+			{
+				Type:    generate.TypeAmneziaWG,
+				Tag:     "awg-out",
+				Server:  "exit-server",
+				Inbound: "awg-in",
+				Address: []string{"10.0.0.5/32"},
+			},
+		},
+	}
+
+	if errs := checkAmneziaWGOutbounds("srv1", cfg); len(errs) != 0 {
+		t.Fatalf("expected 0 errors, got %d: %v", len(errs), errs)
+	}
+}
+
+func TestCheckAmneziaWGOutboundMissingServer(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Outbounds: []config.Outbound{
+			{
+				Type:    generate.TypeAmneziaWG,
+				Tag:     "awg-out",
+				Inbound: "awg-in",
+				Address: []string{"10.0.0.5/32"},
+			},
+		},
+	}
+
+	errs := checkAmneziaWGOutbounds("srv1", cfg)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+	}
+
+	if !strings.Contains(errs[0].Error(), "target server") {
+		t.Errorf("error should mention target server, got: %v", errs[0])
 	}
 }

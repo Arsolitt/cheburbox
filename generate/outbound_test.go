@@ -40,7 +40,7 @@ func TestBuildURLTestOutbound(t *testing.T) {
 		{
 			name: "basic fields",
 			out: config.Outbound{
-				Type:      "urltest",
+				Type:      TypeURLTest,
 				Tag:       "proxy",
 				URL:       "https://www.gstatic.com/generate_204",
 				Interval:  "3m",
@@ -51,7 +51,7 @@ func TestBuildURLTestOutbound(t *testing.T) {
 				if result.Tag != "proxy" {
 					t.Errorf("Tag = %q, want proxy", result.Tag)
 				}
-				if result.Type != "urltest" {
+				if result.Type != TypeURLTest {
 					t.Errorf("Type = %q, want urltest", result.Type)
 				}
 			},
@@ -59,7 +59,7 @@ func TestBuildURLTestOutbound(t *testing.T) {
 		{
 			name: "with tolerance idle_timeout and interrupt",
 			out: config.Outbound{
-				Type:                      "urltest",
+				Type:                      TypeURLTest,
 				Tag:                       "proxy",
 				URL:                       "https://www.gstatic.com/generate_204",
 				Interval:                  "3m",
@@ -88,7 +88,7 @@ func TestBuildURLTestOutbound(t *testing.T) {
 		{
 			name: "empty idle_timeout is zero",
 			out: config.Outbound{
-				Type:      "urltest",
+				Type:      TypeURLTest,
 				Tag:       "proxy",
 				URL:       "https://www.gstatic.com/generate_204",
 				Interval:  "3m",
@@ -129,7 +129,7 @@ func TestBuildURLTestOutboundInvalidIdleTimeout(t *testing.T) {
 	t.Parallel()
 
 	out := config.Outbound{
-		Type:        "urltest",
+		Type:        TypeURLTest,
 		Tag:         "proxy",
 		URL:         "https://www.gstatic.com/generate_204",
 		Interval:    "3m",
@@ -146,7 +146,7 @@ func TestBuildSelectorOutbound(t *testing.T) {
 	t.Parallel()
 
 	out := config.Outbound{
-		Type:      "selector",
+		Type:      TypeSelector,
 		Tag:       "manual-proxy",
 		Outbounds: []string{"vless-out", "hy2-out"},
 	}
@@ -157,7 +157,7 @@ func TestBuildSelectorOutbound(t *testing.T) {
 	if result.Tag != "manual-proxy" {
 		t.Errorf("Tag = %q, want manual-proxy", result.Tag)
 	}
-	if result.Type != "selector" {
+	if result.Type != TypeSelector {
 		t.Errorf("Type = %q, want selector", result.Type)
 	}
 }
@@ -234,7 +234,7 @@ func TestBuildVlessCrossServerOutbound(t *testing.T) {
 	state.StoreListenPort("remote", "vless-in", 443)
 	state.StoreInboundCredentials("remote", "vless-in", InboundCredentials{
 		Users: map[string]UserCreds{
-			"alice": {UUID: "test-uuid-1234", Flow: "xtls-rprx-vision"},
+			"alice": {UUID: "test-uuid-1234", Flow: FlowXTLSRPRXVision},
 		},
 		Reality: &RealityKeys{
 			PublicKey: "pub-key-abc",
@@ -249,7 +249,7 @@ func TestBuildVlessCrossServerOutbound(t *testing.T) {
 		Server:         "remote",
 		Inbound:        "vless-in",
 		User:           "alice",
-		Flow:           "xtls-rprx-vision",
+		Flow:           FlowXTLSRPRXVision,
 		DomainResolver: "dns-intl",
 	}
 
@@ -277,7 +277,7 @@ func TestBuildVlessCrossServerOutbound(t *testing.T) {
 	if opts.UUID != "test-uuid-1234" {
 		t.Errorf("UUID = %q, want test-uuid-1234", opts.UUID)
 	}
-	if opts.Flow != "xtls-rprx-vision" {
+	if opts.Flow != FlowXTLSRPRXVision {
 		t.Errorf("Flow = %q, want xtls-rprx-vision", opts.Flow)
 	}
 	if opts.TLS == nil {
@@ -457,7 +457,7 @@ func TestBuildHysteria2CrossServerOutbound(t *testing.T) {
 	if opts.Obfs == nil {
 		t.Fatal("Obfs is nil, want non-nil")
 	}
-	if opts.Obfs.Type != "salamander" {
+	if opts.Obfs.Type != ObfsSalamander {
 		t.Errorf("Obfs.Type = %q, want salamander", opts.Obfs.Type)
 	}
 	if opts.Obfs.Password != "obfs-secret" {

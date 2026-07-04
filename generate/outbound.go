@@ -11,8 +11,6 @@ import (
 	"github.com/Arsolitt/cheburbox/config"
 )
 
-const outboundTypeDirect = "direct"
-
 // OutboundBuildOption configures outbound building behavior.
 type OutboundBuildOption func(*outboundBuildConfig)
 
@@ -46,15 +44,15 @@ func BuildOutboundWithState(
 	}
 
 	switch out.Type {
-	case outboundTypeDirect:
+	case TypeDirect:
 		return buildDirectOutbound(out)
-	case "urltest":
+	case TypeURLTest:
 		return buildURLTestOutbound(out)
-	case "selector":
+	case TypeSelector:
 		return buildSelectorOutbound(out)
-	case inboundTypeVLESS:
+	case TypeVLESS:
 		return buildCrossServerVlessOutbound(out, state, cfg)
-	case inboundTypeHysteria2:
+	case TypeHysteria2:
 		return buildCrossServerHysteria2Outbound(out, state, cfg)
 	default:
 		return option.Outbound{}, fmt.Errorf("unsupported outbound type %q", out.Type)
@@ -70,7 +68,7 @@ func buildDirectOutbound(out config.Outbound) (option.Outbound, error) {
 	}
 
 	return option.Outbound{
-		Type:    outboundTypeDirect,
+		Type:    TypeDirect,
 		Tag:     out.Tag,
 		Options: &opts,
 	}, nil
@@ -88,10 +86,12 @@ func buildURLTestOutbound(out config.Outbound) (option.Outbound, error) {
 	}
 
 	return option.Outbound{
-		Type: "urltest",
+		Type: TypeURLTest,
 		Tag:  out.Tag,
 		Options: &option.URLTestOutboundOptions{
-			Outbounds:                 out.Outbounds,
+			GroupCommonOption: option.GroupCommonOption{
+				Outbounds: out.Outbounds,
+			},
 			URL:                       out.URL,
 			Interval:                  interval,
 			Tolerance:                 out.Tolerance,
@@ -103,10 +103,12 @@ func buildURLTestOutbound(out config.Outbound) (option.Outbound, error) {
 
 func buildSelectorOutbound(out config.Outbound) (option.Outbound, error) {
 	return option.Outbound{
-		Type: "selector",
+		Type: TypeSelector,
 		Tag:  out.Tag,
 		Options: &option.SelectorOutboundOptions{
-			Outbounds: out.Outbounds,
+			GroupCommonOption: option.GroupCommonOption{
+				Outbounds: out.Outbounds,
+			},
 		},
 	}, nil
 }
@@ -193,7 +195,7 @@ func buildCrossServerVlessOutbound(
 		opts.Multiplex = mux
 	}
 	return option.Outbound{
-		Type:    inboundTypeVLESS,
+		Type:    TypeVLESS,
 		Tag:     out.Tag,
 		Options: &opts,
 	}, nil
@@ -295,7 +297,7 @@ func buildCrossServerHysteria2Outbound(
 
 	if creds.ObfsPassword != "" {
 		opts.Obfs = &option.Hysteria2Obfs{
-			Type:     "salamander",
+			Type:     ObfsSalamander,
 			Password: creds.ObfsPassword,
 		}
 	}
@@ -310,7 +312,7 @@ func buildCrossServerHysteria2Outbound(
 	}
 
 	return option.Outbound{
-		Type:    inboundTypeHysteria2,
+		Type:    TypeHysteria2,
 		Tag:     out.Tag,
 		Options: &opts,
 	}, nil

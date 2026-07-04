@@ -164,38 +164,3 @@ func TestConvertRouteNoDefaultDomainResolver(t *testing.T) {
 		t.Errorf("DefaultDomainResolver = %v, want nil", opts.DefaultDomainResolver)
 	}
 }
-
-func TestConvertRouteDefaultHTTPClient(t *testing.T) {
-	t.Parallel()
-
-	route := &config.Route{
-		Final:             "direct",
-		DefaultHTTPClient: "my-client",
-	}
-
-	opts, err := ConvertRoute(route)
-	if err != nil {
-		t.Fatalf("ConvertRoute: %v", err)
-	}
-
-	if opts.DefaultHTTPClient != "my-client" {
-		t.Errorf("DefaultHTTPClient = %q, want %q", opts.DefaultHTTPClient, "my-client")
-	}
-}
-
-func TestConvertRouteNoDefaultHTTPClient(t *testing.T) {
-	t.Parallel()
-
-	route := &config.Route{
-		Final: "direct",
-	}
-
-	opts, err := ConvertRoute(route)
-	if err != nil {
-		t.Fatalf("ConvertRoute: %v", err)
-	}
-
-	if opts.DefaultHTTPClient != "" {
-		t.Errorf("DefaultHTTPClient = %q, want empty", opts.DefaultHTTPClient)
-	}
-}
