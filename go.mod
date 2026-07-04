@@ -3,6 +3,7 @@ module github.com/Arsolitt/cheburbox
 go 1.26.4
 
 require (
+	github.com/Arsolitt/amnezigo v0.0.0-20260704150337-46893829b1e9
 	github.com/gofrs/uuid/v5 v5.4.0
 	github.com/google/go-jsonnet v0.22.0
 	github.com/sagernet/sing v0.8.11
@@ -14,7 +15,6 @@ require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/AdguardTeam/golibs v0.32.7 // indirect
 	github.com/AliRizaAynaci/gorl/v2 v2.2.0 // indirect
-	github.com/Arsolitt/amnezigo v0.0.0-20260704150337-46893829b1e9 // indirect
 	github.com/Diniboy1123/connect-ip-go v0.0.0-20260409225322-8d7bb0a858a2 // indirect
 	github.com/OneOfOne/xxhash v1.2.8 // indirect
 	github.com/ajg/form v1.5.1 // indirect

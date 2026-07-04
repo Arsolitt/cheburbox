@@ -346,12 +346,14 @@ func assembleOptions(
 	routeOpts *option.RouteOptions,
 	inbounds []option.Inbound,
 	outbounds []option.Outbound,
+	endpoints []option.Endpoint,
 ) (*option.Options, error) {
 	opts := option.Options{
 		DNS:       dnsOpts,
 		Route:     routeOpts,
 		Inbounds:  inbounds,
 		Outbounds: outbounds,
+		Endpoints: endpoints,
 	}
 
 	if len(cfg.Log) > 0 {
@@ -703,17 +705,24 @@ func generateServerWithState(
 		return GenerateResult{}, nil, fmt.Errorf("convert route: %w", err)
 	}
 
-	inbounds, err := buildInbounds(cfg.Inbounds, credsMap)
+	singInbounds, singOutbounds := partitionAmneziaWG(cfg)
+
+	endpoints, err := buildAmneziaWGEndpoints(cfg, serverName, state, persisted)
+	if err != nil {
+		return GenerateResult{}, nil, fmt.Errorf("build amneziawg endpoints: %w", err)
+	}
+
+	inbounds, err := buildInbounds(singInbounds, credsMap)
 	if err != nil {
 		return GenerateResult{}, nil, fmt.Errorf("build inbounds: %w", err)
 	}
 
-	outbounds, err := buildOutboundsWithState(cfg.Outbounds, state, serverName)
+	outbounds, err := buildOutboundsWithState(singOutbounds, state, serverName)
 	if err != nil {
 		return GenerateResult{}, nil, fmt.Errorf("build outbounds: %w", err)
 	}
 
-	opts, err := assembleOptions(cfg, dnsOpts, routeOpts, inbounds, outbounds)
+	opts, err := assembleOptions(cfg, dnsOpts, routeOpts, inbounds, outbounds, endpoints)
 	if err != nil {
 		return GenerateResult{}, nil, err
 	}
@@ -741,29 +750,35 @@ func provisionCrossServerUsers(cfg config.Config, state *ServerState, serverName
 		if out.Server == "" {
 			continue
 		}
-		if out.Type != TypeVLESS && out.Type != TypeHysteria2 {
-			continue
-		}
 
-		user := out.User
-		if user == "" {
-			user = serverName
-		}
+		switch out.Type {
+		case TypeVLESS, TypeHysteria2:
+			user := out.User
+			if user == "" {
+				user = serverName
+			}
 
-		creds, ok := state.GetInboundCredentials(out.Server, out.Inbound)
-		if !ok {
-			continue
-		}
+			creds, ok := state.GetInboundCredentials(out.Server, out.Inbound)
+			if !ok {
+				continue
+			}
 
-		if _, exists := creds.Users[user]; exists {
-			continue
-		}
+			if _, exists := creds.Users[user]; exists {
+				continue
+			}
 
-		if err := state.EnsureUser(out.Server, out.Inbound, user); err != nil {
-			continue
-		}
+			if err := state.EnsureUser(out.Server, out.Inbound, user); err != nil {
+				continue
+			}
 
-		dirty[out.Server] = true
+			dirty[out.Server] = true
+		case TypeAmneziaWG:
+			// The client endpoint builder (buildAmneziaWGEndpoints) provisions
+			// this client's public key into the target server's peer registry.
+			// Mark the target dirty so it is regenerated with the new peer in
+			// its server endpoint.
+			dirty[out.Server] = true
+		}
 	}
 
 	return dirty
