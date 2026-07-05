@@ -315,7 +315,7 @@ sing-box 1.13 (the extended fork base) promoted WireGuard from an inbound/outbou
   "listen_port": 51820,
   "address": ["10.7.0.1/24"],
   "mtu": 1280,
-  "amnezia": { "protocol": "quic", "mtu": 1280 }
+  "amnezia": { "preset": "mobile-aggressive", "protocol": "dns", "mtu": 1280 }
 }
 ```
 
@@ -325,10 +325,52 @@ sing-box 1.13 (the extended fork base) promoted WireGuard from an inbound/outbou
 | `listen_port` | `int`            | Yes      | UDP port the WireGuard endpoint binds.                                                         |
 | `address`     | `[]string`       | Yes      | Exactly one CIDR — the tunnel subnet for this server (e.g. `["10.7.0.1/24"]`).                 |
 | `mtu`         | `int`            | No       | WireGuard interface MTU. Defaults to `1280`.                                                    |
-| `amnezia`     | `*AmneziaConfig` | No       | User-facing obfuscation preferences (`protocol`, `mtu`); raw Jc/S1/H1 params are generated.    |
+| `amnezia`     | `*AmneziaConfig` | No       | User-facing obfuscation preferences (`protocol`, `preset`, `mtu`); raw Jc/S1/H1 params are generated.    |
 | `users`       | `[]InboundUser`  | No       | Client peers. Each `{name}` becomes a peer with its own keypair; cross-server outbounds provision additional peers. |
 
 Each declared user is provisioned as a WireGuard peer on the server endpoint. The server's `amnezia` block carries the shared obfuscation parameters (Jc/Jmin/Jmax/S1-S4/H1-H4); the client-only I1-I5 parameters are generated on each client endpoint — see [AmneziaWG (cross-server)](#amneziawg-cross-server).
+
+### AmneziaConfig
+
+User-facing AmneziaWG preferences. Only `protocol`, `preset`, and `mtu` are set in `cheburbox.json`; the raw obfuscation parameters (Jc/Jmin/Jmax/S1-S4/H1-H4 on the server, plus client-only I1-I5) are produced by the bundled `amnezigo` library and persisted in `config.json` so they stay stable across runs.
+
+| Field      | Type     | Default   | Notes                                                                                       |
+| ---------- | -------- | --------- | ------------------------------------------------------------------------------------------- |
+| `protocol` | `string` | `quic`    | I1-I5 transport-fingerprint template. One of `quic`, `dns`, `dtls`, `stun`, `sip`, `rtp`, `random`. `random` picks one of the six templates per client. |
+| `preset`   | `string` | _(empty)_ | Named bundle of shared params (Jc/Jmin/Jmax/S1-S4/H1-H4) tuned for a network profile. Empty → fully random params per server (the default). One of the preset names below. |
+| `mtu`      | `int`    | `1280`    | Transport MTU. Overrides the inbound-level `mtu` when set.                                  |
+
+#### Protocols
+
+The `protocol` field selects which real-world protocol AmneziaWG's I1-I5 client packets mimic in size and byte-pattern. Each client generates its own I1-I5 from the template; the server carries no I1-I5.
+
+| Value    | Mimics                                  | When to choose                                                                 |
+| -------- | --------------------------------------- | ------------------------------------------------------------------------------ |
+| `quic`   | QUIC initial packets (RFC 9000).        | Default. Blends with HTTP/3 and QUIC-bearing services.                        |
+| `dns`    | DNS-over-UDP query/response.            | Networks where DNS is whitelisted; small-packet profiles.                     |
+| `dtls`   | DTLS 1.2 records (RFC 6347).            | VPN-adjacent camouflage; pairs well with `low-overhead`.                      |
+| `stun`   | STUN binding requests (RFC 5389).       | WebRTC/voice infrastructure where STUN is ubiquitous.                         |
+| `sip`    | SIP signalling (RFC 3261, ASCII).       | VoIP gateways; distinct text byte-length distribution.                        |
+| `rtp`    | RTP media packets (RFC 3550).           | DPI that whitelists voice/video; per-packet timestamp semantics.              |
+| `random` | Random selection from the six templates | Fleet diversity — every client gets a different fingerprint.                  |
+
+#### Presets
+
+The `preset` field fixes the shared server-side parameters to a curated bundle. When omitted, cheburbox generates a fully random valid bundle for each server (recommended for most deployments — it maximises per-server uniqueness). Use a preset when you want a specific throughput/stealth trade-off or need reproducible parameter shapes.
+
+Padded handshake sizes (S1+148, S2+92, S3+64, S4+32) and junk ranges are pre-validated by amnezigo to be collision-free and pass `ValidatePacketSizes`.
+
+| Preset              | MTU  | Profile                                                                                            | Best for                                                                 |
+| ------------------- | ---- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `lan-conservative`  | 1280 | Small S values, narrow junk range, low overhead.                                                   | Corporate LANs with minimal DPI.                                        |
+| `home-balanced`     | 1280 | Moderate S values and junk range.                                                                  | Home internet; the closest equivalent to the random default.            |
+| `mobile-aggressive` | 1280 | Large S values, wide junk range, high junk count. Maximum entropy.                                 | Carrier networks with heavy DPI (MTS, Beeline, etc.).                   |
+| `stealth-paranoid`  | 1280 | Maximum steady-state masking; large S4 pads every transport packet. ~3% per-packet overhead.       | Hostile DPI — national firewalls, deep statistical inspection.          |
+| `standard-1420`     | 1420 | Same masking as `home-balanced` at WireGuard's classic MTU 1420, with more I-packet headroom.       | Links that tolerate 1420 MTU (note: S4+MTU exceeds IPv6 Ethernet by 16 B). |
+| `low-overhead`      | 1280 | Minimal overhead; S4 at the AWG floor, low junk count.                                             | Satellite, metered, slow cellular. Trades masking for throughput.       |
+| `test-minimal`      | 1280 | Smallest valid parameter set. **Not for production.**                                              | CI and integration tests only.                                          |
+
+> The client (`amneziawg` outbound) inherits shared params from its target server — never set `preset` or `protocol` on an outbound, only on the inbound.
 
 ## Outbounds
 

@@ -233,6 +233,105 @@ func TestAmneziaWGCrossServer(t *testing.T) {
 	})
 }
 
+// TestAmneziaWGPresetProducesPresetParams proves that a named preset yields
+// deterministic shared amnezia params (Jc/Jmin/Jmax/S1-S4/H1-H4) matching
+// amnezigo.GetPreset(name).ToServerObfuscation(), rather than a random bundle.
+// It also asserts the server block omits client-only I1-I5 and that the
+// generated config constructs a valid sing-box instance.
+func TestAmneziaWGPresetProducesPresetParams(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := t.TempDir()
+
+	const presetName = "home-balanced"
+
+	setupTestServer(t, projectRoot, "awg-server", config.Config{
+		Version:  1,
+		Endpoint: "203.0.113.10",
+		DNS: config.DNS{
+			Final:   new("dns-local"),
+			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+		},
+		Inbounds: []config.Inbound{
+			{
+				Tag:        "awg-in",
+				Type:       TypeAmneziaWG,
+				ListenPort: 51820,
+				Address:    []string{"10.7.0.1/24"},
+				Amnezia:    &config.AmneziaConfig{Preset: presetName, Protocol: "quic"},
+			},
+		},
+		Outbounds: []config.Outbound{
+			{Type: TypeDirect, Tag: "direct"},
+		},
+		Route: &config.Route{Final: "direct", AutoDetectInterface: true},
+	})
+
+	results, err := GenerateAll(projectRoot, "lib", GenerateConfig{})
+	if err != nil {
+		t.Fatalf("GenerateAll: %v", err)
+	}
+
+	serverResult := findResultByName(results, "awg-server")
+	if serverResult == nil {
+		t.Fatal("awg-server result not found")
+	}
+	serverConfig := findFile(serverResult.Files, "config.json")
+	if serverConfig == nil {
+		t.Fatal("awg-server config.json not found")
+	}
+
+	opts := parseBoxOptions(t, serverConfig.Content)
+	ep := findWGEndpoint(opts, "awg-in")
+	if ep == nil {
+		t.Fatal("awg-server has no wireguard endpoint tagged awg-in")
+	}
+	if ep.Amnezia == nil {
+		t.Fatal("awg-server endpoint has no amnezia block")
+	}
+
+	// The endpoint's amnezia block must carry the preset's exact shared params.
+	preset, err := amnezigo.GetPreset(presetName)
+	if err != nil {
+		t.Fatalf("GetPreset(%q): %v", presetName, err)
+	}
+	expected := preset.ToServerObfuscation()
+
+	// Scalar fields (sing-box WireGuardAmnezia uses .JC/.JMin/.JMax/.S1-.S4).
+	if ep.Amnezia.JC != expected.Jc {
+		t.Errorf("amnezia JC = %d, want preset Jc %d", ep.Amnezia.JC, expected.Jc)
+	}
+	if ep.Amnezia.JMin != expected.Jmin {
+		t.Errorf("amnezia JMin = %d, want preset Jmin %d", ep.Amnezia.JMin, expected.Jmin)
+	}
+	if ep.Amnezia.JMax != expected.Jmax {
+		t.Errorf("amnezia JMax = %d, want preset Jmax %d", ep.Amnezia.JMax, expected.Jmax)
+	}
+	if ep.Amnezia.S1 != expected.S1 {
+		t.Errorf("amnezia S1 = %d, want preset S1 %d", ep.Amnezia.S1, expected.S1)
+	}
+	if ep.Amnezia.S2 != expected.S2 {
+		t.Errorf("amnezia S2 = %d, want preset S2 %d", ep.Amnezia.S2, expected.S2)
+	}
+	if ep.Amnezia.S3 != expected.S3 {
+		t.Errorf("amnezia S3 = %d, want preset S3 %d", ep.Amnezia.S3, expected.S3)
+	}
+	if ep.Amnezia.S4 != expected.S4 {
+		t.Errorf("amnezia S4 = %d, want preset S4 %d", ep.Amnezia.S4, expected.S4)
+	}
+
+	// Server amnezia must NOT carry I1-I5 (client-only).
+	if ep.Amnezia.I1 != "" {
+		t.Errorf("server amnezia must not carry I1, got %q", ep.Amnezia.I1)
+	}
+
+	// Generated config must be a valid sing-box instance.
+	t.Run("box_check", func(t *testing.T) {
+		t.Parallel()
+		singBoxValidate(t, serverConfig.Content)
+	})
+}
+
 // TestAmneziaWGPersistenceStable verifies that running GenerateAll twice
 // produces identical server/amnezia/client key material: the second run reuses
 // the persisted server private key, shared amnezia params, and client private

@@ -273,6 +273,7 @@ func TestConfigAmneziaWGRoundTrip(t *testing.T) {
 				MTU:        1280,
 				Amnezia: &AmneziaConfig{
 					Protocol: "quic",
+					Preset:   "home-balanced",
 					MTU:      1280,
 				},
 			},
@@ -325,6 +326,9 @@ func TestConfigAmneziaWGRoundTrip(t *testing.T) {
 	}
 	if in.Amnezia.MTU != 1280 {
 		t.Errorf("inbound Amnezia.MTU = %d, want 1280", in.Amnezia.MTU)
+	}
+	if in.Amnezia.Preset != "home-balanced" {
+		t.Errorf("inbound Amnezia.Preset = %q, want home-balanced", in.Amnezia.Preset)
 	}
 
 	out := cfg2.Outbounds[0]

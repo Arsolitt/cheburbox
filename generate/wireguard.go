@@ -134,11 +134,22 @@ func generateAmneziaShared() (option.WireGuardAmnezia, error) {
 }
 
 // resolveServerAmnezia returns the shared amnezia block for a server endpoint.
-// If persisted credentials already carry one for this tag it is reused as-is
-// (stable across runs); otherwise a fresh block is generated.
-func resolveServerAmnezia(tag string, persisted config.PersistedCredentials) (option.WireGuardAmnezia, error) {
+// Persisted credentials win first (stable across runs). Otherwise, when preset
+// is non-empty, the block is derived from the named amnezigo preset; when preset
+// is empty, a fresh fully-random block is generated (current default behaviour).
+func resolveServerAmnezia(
+	tag, preset string,
+	persisted config.PersistedCredentials,
+) (option.WireGuardAmnezia, error) {
 	if ep, ok := persisted.WireGuardEndpoints[tag]; ok && ep.Amnezia != nil {
 		return cloneWGAmnezia(*ep.Amnezia), nil
+	}
+	if preset != "" {
+		p, err := amnezigo.GetPreset(preset)
+		if err != nil {
+			return option.WireGuardAmnezia{}, fmt.Errorf("resolve amnezia preset %q: %w", preset, err)
+		}
+		return toAmneziaShared(p.ToServerObfuscation()), nil
 	}
 	return generateAmneziaShared()
 }
@@ -386,7 +397,11 @@ func BuildAmneziaWGServerEndpoint(
 	} else {
 		serverPriv, serverPub = resolveWGPrivateKey(in.Tag, persisted)
 
-		shared, err = resolveServerAmnezia(in.Tag, persisted)
+		preset := ""
+		if in.Amnezia != nil {
+			preset = in.Amnezia.Preset
+		}
+		shared, err = resolveServerAmnezia(in.Tag, preset, persisted)
 		if err != nil {
 			return nil, fmt.Errorf("resolve amnezia params: %w", err)
 		}

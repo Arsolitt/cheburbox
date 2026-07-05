@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/Arsolitt/amnezigo"
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/include"
 	singjson "github.com/sagernet/sing/common/json"
@@ -357,15 +358,41 @@ func checkOutboundGroupRefs(server string, cfg config.Config) []error {
 	return errs
 }
 
-// allowedAmneziaWGProtocols is the set of transport obfuscation protocols accepted
-// by AmneziaConfig.Protocol. It mirrors amnezigo's protocol set.
+// amneziaProtocol* constants are the transport obfuscation protocols accepted
+// by AmneziaConfig.Protocol. amnezigo's protocol constants are unexported, so
+// these mirror them by value.
+const (
+	amneziaProtocolQUIC   = "quic"
+	amneziaProtocolDNS    = "dns"
+	amneziaProtocolDTLS   = "dtls"
+	amneziaProtocolSTUN   = "stun"
+	amneziaProtocolSIP    = "sip"
+	amneziaProtocolRTP    = "rtp"
+	amneziaProtocolRandom = "random"
+)
+
+// allowedAmneziaWGProtocols is the set of transport obfuscation protocols
+// accepted by AmneziaConfig.Protocol.
 var allowedAmneziaWGProtocols = map[string]bool{
-	"quic": true,
-	"dns":  true,
-	"dtls": true,
-	"stun": true,
-	"sip":  true,
+	amneziaProtocolQUIC:   true,
+	amneziaProtocolDNS:    true,
+	amneziaProtocolDTLS:   true,
+	amneziaProtocolSTUN:   true,
+	amneziaProtocolSIP:    true,
+	amneziaProtocolRTP:    true,
+	amneziaProtocolRandom: true,
 }
+
+// allowedAmneziaWGPresets is the set of preset names accepted by
+// AmneziaConfig.Preset. Built from amnezigo.ListPresets() so new presets are
+// accepted automatically after a `go get` bump.
+var allowedAmneziaWGPresets = func() map[string]bool {
+	m := make(map[string]bool, len(amnezigo.ListPresets()))
+	for _, p := range amnezigo.ListPresets() {
+		m[p.Name] = true
+	}
+	return m
+}()
 
 // validateSingleCIDRAddress checks that addrs contains exactly one entry and that it
 // parses as a valid CIDR prefix. role qualifies the element kind in error messages
@@ -420,10 +447,19 @@ func checkAmneziaWGInbounds(server string, cfg config.Config) []error {
 
 		if in.Amnezia != nil && in.Amnezia.Protocol != "" && !allowedAmneziaWGProtocols[in.Amnezia.Protocol] {
 			errs = append(errs, fmt.Errorf(
-				"server %q: amneziawg inbound %q has invalid amnezia protocol %q (want one of quic, dns, dtls, stun, sip)",
+				"server %q: amneziawg inbound %q has invalid amnezia protocol %q (want one of quic, dns, dtls, stun, sip, rtp, random)",
 				server,
 				in.Tag,
 				in.Amnezia.Protocol,
+			))
+		}
+
+		if in.Amnezia != nil && in.Amnezia.Preset != "" && !allowedAmneziaWGPresets[in.Amnezia.Preset] {
+			errs = append(errs, fmt.Errorf(
+				"server %q: amneziawg inbound %q has unknown amnezia preset %q",
+				server,
+				in.Tag,
+				in.Amnezia.Preset,
 			))
 		}
 	}

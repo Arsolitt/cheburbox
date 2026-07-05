@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Arsolitt/amnezigo"
+
 	"github.com/Arsolitt/cheburbox/config"
 	"github.com/Arsolitt/cheburbox/generate"
 )
@@ -721,6 +723,93 @@ func TestCheckAmneziaWGInboundInvalidProtocol(t *testing.T) {
 
 	if !strings.Contains(errs[0].Error(), "bogus") {
 		t.Errorf("error should mention invalid protocol, got: %v", errs[0])
+	}
+}
+
+// TestCheckAmneziaWGInboundValidProtocols asserts every accepted transport
+// protocol produces zero errors. The list mirrors allowedAmneziaWGProtocols;
+// amnezigo's protocol constants are unexported, so the list is literal here too.
+func TestCheckAmneziaWGInboundValidProtocols(t *testing.T) {
+	t.Parallel()
+
+	validProtocols := []string{"quic", "dns", "dtls", "stun", "sip", "rtp", "random"}
+
+	for _, proto := range validProtocols {
+		t.Run(proto, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.Config{
+				Inbounds: []config.Inbound{
+					{
+						Type:       generate.TypeAmneziaWG,
+						Tag:        "awg-in",
+						ListenPort: 51820,
+						Address:    []string{"10.0.0.1/24"},
+						Amnezia:    &config.AmneziaConfig{Protocol: proto},
+					},
+				},
+			}
+
+			if errs := checkAmneziaWGInbounds("srv1", cfg); len(errs) != 0 {
+				t.Fatalf("expected 0 errors, got %d: %v", len(errs), errs)
+			}
+		})
+	}
+}
+
+// TestCheckAmneziaWGInboundValidPresets asserts every preset shipped by
+// amnezigo is accepted. The list is read dynamically from ListPresets so the
+// test stays in sync after future amnezigo bumps.
+func TestCheckAmneziaWGInboundValidPresets(t *testing.T) {
+	t.Parallel()
+
+	for _, p := range amnezigo.ListPresets() {
+		t.Run(p.Name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.Config{
+				Inbounds: []config.Inbound{
+					{
+						Type:       generate.TypeAmneziaWG,
+						Tag:        "awg-in",
+						ListenPort: 51820,
+						Address:    []string{"10.0.0.1/24"},
+						Amnezia:    &config.AmneziaConfig{Preset: p.Name},
+					},
+				},
+			}
+
+			if errs := checkAmneziaWGInbounds("srv1", cfg); len(errs) != 0 {
+				t.Fatalf("expected 0 errors, got %d: %v", len(errs), errs)
+			}
+		})
+	}
+}
+
+// TestCheckAmneziaWGInboundUnknownPreset asserts an unrecognised preset name
+// produces exactly one error that mentions "unknown amnezia preset".
+func TestCheckAmneziaWGInboundUnknownPreset(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Inbounds: []config.Inbound{
+			{
+				Type:       generate.TypeAmneziaWG,
+				Tag:        "awg-in",
+				ListenPort: 51820,
+				Address:    []string{"10.0.0.1/24"},
+				Amnezia:    &config.AmneziaConfig{Preset: "no-such-preset"},
+			},
+		},
+	}
+
+	errs := checkAmneziaWGInbounds("srv1", cfg)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+	}
+
+	if !strings.Contains(errs[0].Error(), "unknown amnezia preset") {
+		t.Errorf("error should mention unknown amnezia preset, got: %v", errs[0])
 	}
 }
 
