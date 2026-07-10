@@ -9,11 +9,13 @@ package validate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/Arsolitt/amnezigo"
 	box "github.com/sagernet/sing-box"
@@ -132,6 +134,7 @@ func runPhase1(configs map[string]config.Config) []ServerResult {
 	}
 
 	crossServerErrs := checkOutboundInboundRefs(configs)
+	amneziaWGCollisionErrs := checkAmneziaWGAllowedIPsCollision(configs)
 
 	sortedServers := make([]string, 0, len(configs))
 	for name := range configs {
@@ -154,6 +157,7 @@ func runPhase1(configs map[string]config.Config) []ServerResult {
 		errs = append(errs, checkAmneziaWGOutbounds(name, cfg)...)
 		errs = append(errs, checkOutboundGroupRefs(name, cfg)...)
 		errs = append(errs, crossServerErrs[name]...)
+		errs = append(errs, amneziaWGCollisionErrs[name]...)
 
 		results = append(results, ServerResult{
 			Server: name,
@@ -499,4 +503,49 @@ func checkAmneziaWGOutbounds(server string, cfg config.Config) []error {
 	}
 
 	return errs
+}
+
+// checkAmneziaWGAllowedIPsCollision detects amneziawg outbounds across the
+// whole project whose address CIDR collides for the same target (server,
+// inbound). Two clients provisioning the same /32 against one server endpoint
+// produce indistinguishable peers. Errors are attributed to every source server
+// that contributed a colliding outbound.
+func checkAmneziaWGAllowedIPsCollision(configs map[string]config.Config) map[string][]error {
+	const minOwnersForCollision = 2
+
+	// key: server + inbound + address -> list of source servers.
+	type claim struct{ server, inbound, address string }
+	owners := make(map[claim][]string)
+
+	for srcName, cfg := range configs {
+		for _, out := range cfg.Outbounds {
+			if out.Type != generate.TypeAmneziaWG || out.Server == "" || out.Inbound == "" || len(out.Address) == 0 {
+				continue
+			}
+			key := claim{out.Server, out.Inbound, out.Address[0]}
+			owners[key] = append(owners[key], srcName)
+		}
+	}
+
+	result := make(map[string][]error)
+	for c, sources := range owners {
+		if len(sources) < minOwnersForCollision {
+			continue
+		}
+		sort.Strings(sources)
+		msg := fmt.Sprintf(
+			"amneziawg outbound address %q for server %q inbound %q is shared by multiple clients: %s",
+			c.address, c.server, c.inbound, strings.Join(sources, ", "))
+		// Attribute to each source server that contributed a colliding outbound.
+		// Dedup in case one server has two outbounds with the same address+target.
+		seen := make(map[string]bool, len(sources))
+		for _, s := range sources {
+			if seen[s] {
+				continue
+			}
+			seen[s] = true
+			result[s] = append(result[s], errors.New(msg))
+		}
+	}
+	return result
 }

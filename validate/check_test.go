@@ -174,6 +174,97 @@ func TestCheckOutboundInboundRefsNoCrossServer(t *testing.T) {
 	}
 }
 
+func TestAmneziaWGAllowedIPsCollision(t *testing.T) {
+	t.Parallel()
+
+	const sharedAddr = "10.7.0.2/32"
+
+	configs := map[string]config.Config{
+		"awg-server": {
+			Inbounds: []config.Inbound{
+				{Type: generate.TypeAmneziaWG, Tag: "awg-in", ListenPort: 51820, Address: []string{"10.7.0.1/24"}},
+			},
+		},
+		"client-a": {
+			Outbounds: []config.Outbound{
+				{
+					Type:    generate.TypeAmneziaWG,
+					Tag:     "awg-out",
+					Server:  "awg-server",
+					Inbound: "awg-in",
+					Address: []string{sharedAddr},
+				},
+			},
+		},
+		"client-b": {
+			Outbounds: []config.Outbound{
+				{
+					Type:    generate.TypeAmneziaWG,
+					Tag:     "awg-out",
+					Server:  "awg-server",
+					Inbound: "awg-in",
+					Address: []string{sharedAddr},
+				},
+			},
+		},
+	}
+
+	errs := checkAmneziaWGAllowedIPsCollision(configs)
+
+	for _, src := range []string{"client-a", "client-b"} {
+		serverErrs := errs[src]
+		if len(serverErrs) != 1 {
+			t.Fatalf("server %q: expected 1 collision error, got %d: %v", src, len(serverErrs), serverErrs)
+		}
+		msg := serverErrs[0].Error()
+		if !strings.Contains(msg, sharedAddr) {
+			t.Errorf("server %q: error should mention address %q, got: %s", src, sharedAddr, msg)
+		}
+		if !strings.Contains(msg, "client-a") || !strings.Contains(msg, "client-b") {
+			t.Errorf("server %q: error should name both clients, got: %s", src, msg)
+		}
+	}
+}
+
+func TestAmneziaWGAllowedIPsCollisionDistinct(t *testing.T) {
+	t.Parallel()
+
+	configs := map[string]config.Config{
+		"awg-server": {
+			Inbounds: []config.Inbound{
+				{Type: generate.TypeAmneziaWG, Tag: "awg-in", ListenPort: 51820, Address: []string{"10.7.0.1/24"}},
+			},
+		},
+		"client-a": {
+			Outbounds: []config.Outbound{
+				{
+					Type:    generate.TypeAmneziaWG,
+					Tag:     "awg-out",
+					Server:  "awg-server",
+					Inbound: "awg-in",
+					Address: []string{"10.7.0.2/32"},
+				},
+			},
+		},
+		"client-b": {
+			Outbounds: []config.Outbound{
+				{
+					Type:    generate.TypeAmneziaWG,
+					Tag:     "awg-out",
+					Server:  "awg-server",
+					Inbound: "awg-in",
+					Address: []string{"10.7.0.3/32"},
+				},
+			},
+		},
+	}
+
+	errs := checkAmneziaWGAllowedIPsCollision(configs)
+	if len(errs) != 0 {
+		t.Fatalf("expected 0 collision errors for distinct addresses, got %d: %v", len(errs), errs)
+	}
+}
+
 func TestCheckOutboundGroupRefsValid(t *testing.T) {
 	t.Parallel()
 
