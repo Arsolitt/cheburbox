@@ -152,7 +152,7 @@ You are an expert proficient in sing-box proxy configuration and cheburbox proje
 
 ## Requirements
 
-- **Go 1.26.1 or newer** to build or `go install`.
+- **Go 1.26.4 or newer** to build or `go install`.
 - **No external `sing-box` binary required** — `cheburbox validate` links sing-box as a Go library and runs the check
   in-process.
 

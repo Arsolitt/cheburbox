@@ -1,0 +1,18 @@
+# Version control and CI metadata
+.git/
+.gitignore
+.github/
+
+# Local build artifacts and scratch space
+build/
+bin/
+main
+
+# Sensitive test fixtures — must never enter an image layer
+banks/
+
+# Documentation and AI assistant context (not needed at runtime)
+docs/
+llms-full.txt
+.claude/
+*.md
