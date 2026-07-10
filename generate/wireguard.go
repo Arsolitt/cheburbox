@@ -5,6 +5,7 @@ import (
 	"math"
 	"net"
 	"net/netip"
+	"slices"
 	"strconv"
 
 	"github.com/Arsolitt/amnezigo"
@@ -295,10 +296,19 @@ func allocatePeerAllowedIPs(
 
 // buildServerWGPeers assembles the sing-box peer list for a server endpoint from
 // the provisioned peer registry. Each peer's AllowedIPs is the peer's tunnel
-// address; the peer's PublicKey and PreSharedKey come from the registry.
+// address; the peer's PublicKey and PreSharedKey come from the registry. Peers
+// are emitted in sorted map-key (user name) order so the output is stable
+// across runs (Go map iteration order is randomized).
 func buildServerWGPeers(peers map[string]AmneziaWGPeerCreds) []option.WireGuardPeer {
+	keys := make([]string, 0, len(peers))
+	for k := range peers {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+
 	result := make([]option.WireGuardPeer, 0, len(peers))
-	for _, p := range peers {
+	for _, k := range keys {
+		p := peers[k]
 		result = append(result, option.WireGuardPeer{
 			PublicKey:    p.PublicKey,
 			PreSharedKey: p.PresharedKey,

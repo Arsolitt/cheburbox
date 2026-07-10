@@ -1,7 +1,9 @@
 package generate
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -231,6 +233,56 @@ func TestAmneziaWGCrossServer(t *testing.T) {
 		t.Parallel()
 		singBoxValidate(t, clientConfig.Content)
 	})
+}
+
+// deterministicPeerIterations runs the peer-list builder enough times that an
+// unsorted (map-order) implementation would almost certainly reshuffle at least
+// once. Go randomizes map iteration start per range.
+const deterministicPeerIterations = 100
+
+// TestAmneziaWGPeerOrderDeterministic proves the server WireGuard peer list is
+// emitted in sorted map-key (user name) order on every call, so re-running
+// generate produces byte-identical peer blocks (the map-iteration fix). A
+// hand-built registry with out-of-order names and distinct PublicKeys pins each
+// output position to a specific user.
+func TestAmneziaWGPeerOrderDeterministic(t *testing.T) {
+	t.Parallel()
+
+	peers := map[string]AmneziaWGPeerCreds{
+		"zoe":   {PublicKey: "pub-zoe"},
+		"alice": {PublicKey: "pub-alice"},
+		"mike":  {PublicKey: "pub-mike"},
+		"bob":   {PublicKey: "pub-bob"},
+		"diana": {PublicKey: "pub-diana"},
+	}
+	wantOrder := []string{"alice", "bob", "diana", "mike", "zoe"}
+
+	var reference []byte
+	for range deterministicPeerIterations {
+		got := buildServerWGPeers(peers)
+		if len(got) != len(wantOrder) {
+			t.Fatalf("peer count = %d, want %d", len(got), len(wantOrder))
+		}
+		for i, p := range got {
+			want := "pub-" + wantOrder[i]
+			if p.PublicKey != want {
+				t.Fatalf("peer[%d] PublicKey = %q, want %q (name %q)",
+					i, p.PublicKey, want, wantOrder[i])
+			}
+		}
+
+		b, err := json.Marshal(got)
+		if err != nil {
+			t.Fatalf("marshal peers: %v", err)
+		}
+		if reference == nil {
+			reference = b
+			continue
+		}
+		if !bytes.Equal(reference, b) {
+			t.Fatalf("peer order is non-deterministic across iterations:\n%s\n%s", reference, b)
+		}
+	}
 }
 
 // TestAmneziaWGPresetProducesPresetParams proves that a named preset yields
