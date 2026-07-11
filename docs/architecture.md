@@ -40,6 +40,8 @@ Layer 1 is intentionally simplified: a single `endpoint` field on the server, na
 
 Generation translates Layer 1 into Layer 2 via builder helpers in `generate/`: `BuildInbound`, `BuildOutbound`, `ConvertDNS`, `ConvertRoute`. The final marshal uses `singjson.MarshalContext` + `json.Indent` for pretty output.
 
+AmneziaWG (`TypeAmneziaWG = "amneziawg"`, a first-class protocol constant alongside `vless`, `hysteria2`, and `tun`) is the exception to this path: its inbounds and outbounds are partitioned out by `partitionAmneziaWG` (`generate/wireguard.go`) and routed away from `BuildInbound` / `BuildOutbound` into `BuildAmneziaWGServerEndpoint` / `BuildAmneziaWGClientEndpoint`. These emit sing-box `wireguard` endpoints as top-level `endpoints[]` entries — not `inbounds[]` or `outbounds[]` — and are distinguished from plain WireGuard by a non-nil `amnezia` block. This keeps the standard inbound/outbound builders from ever encountering the unsupported `amneziawg` type.
+
 > **Note:** When extending the schema, add fields to Layer 1 only. The reverse direction — adding things to Layer 2 — is meaningless because sing-box owns those structs.
 
 See [`./configuration.md`](./configuration.md) for the Layer 1 schema reference and [`./generate.md`](./generate.md) for how the translation runs.
@@ -88,9 +90,11 @@ Cheburbox does **not** regenerate credentials on every run. On each invocation, 
    - Hysteria2 users → `{Password}`
    - Reality block (only when `reality.enabled`) → `{private_key, short_id}`
    - Hysteria2 obfs → password
-3. Returns empty credentials (no error) if `config.json` is missing.
+3. Walks the top-level `Endpoints` array and extracts:
+   - AmneziaWG endpoints (only when the endpoint's `amnezia` block is non-nil — plain WireGuard endpoints are skipped) → `{private_key, amnezia_params, peers[{public_key, preshared_key}]}`. The per-peer map is keyed by peer public key since WireGuard peers carry no name field. `cloneAmnezia` deep-copies the H1–H4 pointer ranges so persisted state does not alias the parsed options.
+4. Returns empty credentials (no error) if `config.json` is missing.
 
-Resolution is per-user: persisted credentials win verbatim if present; otherwise fresh ones are generated. The Reality public key is **not** stored — it is derived from the private key on demand. By default, undeclared users present in the previous `config.json` are also preserved (this is what protects auto-provisioned cross-server users from being deleted).
+Resolution is per-user: persisted credentials win verbatim if present; otherwise fresh ones are generated. The Reality public key is **not** stored — it is derived from the private key on demand. The same pattern applies to AmneziaWG: `WireGuardEndpointCreds.PrivateKey` is persisted and the public key is always derived from it (via `amnezigo.DerivePublicKey`), so the two can never drift. By default, undeclared users present in the previous `config.json` are also preserved (this is what protects auto-provisioned cross-server users from being deleted).
 
 Cryptographic generators:
 
@@ -98,9 +102,12 @@ Cryptographic generators:
 | --- | --- |
 | UUID | `gofrs/uuid` v5 `NewV4` (reads `/dev/urandom`) |
 | Password | `crypto/rand` 24 bytes, base64 std |
-| X25519 keypair | `crypto/ecdh` |
+| X25519 keypair (Reality / general) | `crypto/ecdh` (`generate/credentials.go`) |
 | Reality short ID | `crypto/rand` 8 bytes, hex |
 | Self-signed cert | Ed25519 + `crypto/x509` |
+| AmneziaWG server/client keypair | `amnezigo.GenerateKeyPair` (X25519) — distinct from the `crypto/ecdh` Reality path (`generate/wireguard.go`) |
+| AmneziaWG peer preshared key | `amnezigo.GeneratePSK` |
+| AmneziaWG shared obfuscation params (Jc/Jmin/Jmax/S1–S4/H1–H4) | `amnezigo.GenerateSPrefixes` + `GenerateJunkParamsWithForbidden` + `GenerateHeaderRanges` |
 
 `--full-reset` is the explicit opt-in to wipe persisted state and regenerate everything (and force cert regeneration regardless of SAN match). It is mutually exclusive with `--orphan`. **Why this matters:** regenerating credentials silently would break every already-deployed client, which is why preservation is the default and reset is gated behind a named flag.
 
@@ -119,6 +126,9 @@ See [`./generate.md`](./generate.md) for the full credentials lifecycle.
 - Detect Hysteria2 inbounds on the same server sharing a `tls.server_name` (which would conflict on cert files).
 - Verify that `urltest` / `selector` group `outbounds` reference tags defined on the **same** server (cross-server tags are not supported in groups).
 - Verify cross-server outbound → inbound tag references resolve.
+- Verify AmneziaWG inbounds have a non-zero `listen_port`, exactly one CIDR address, and (when set) a valid transport protocol and preset (`checkAmneziaWGInbounds`).
+- Verify AmneziaWG outbounds reference a valid target server and target inbound tag, with exactly one CIDR address (`checkAmneziaWGOutbounds`).
+- Detect AmneziaWG cross-server AllowedIPs collisions: two clients provisioning the same `/32` against one server endpoint are indistinguishable peers (`checkAmneziaWGAllowedIPsCollision`).
 
 Global Phase 1 errors (e.g., a cycle) short-circuit Phase 2.
 
@@ -143,7 +153,7 @@ The `ruleset` package compiles JSON rule-set sources at `<server>/<name>.json` i
 
 Discovery only counts files whose name (without extension) appears in `route.custom_rule_sets`. The reserved filenames `cheburbox.json` and `config.json` are always ignored, even if listed. Custom rule-set entries with no matching `<name>.json` source are silently skipped.
 
-Compilation has a **disk side-effect**: `compileRuleSets` calls `os.Create` + `srs.Write` directly, then re-reads the `.srs` to package as a `FileOutput`. This means rule-set `.srs` files exist on disk before the atomic write boundary in Pass 2. If a later step fails, orphaned `.srs` files may remain.
+Compilation has a **disk side-effect**: `compileRuleSets` calls `os.Create` + `srs.Write` directly, then re-reads the `.srs` to package as a `FileOutput`. This means rule-set `.srs` files exist on disk before `writeResults` commits the rest of the output in Pass 2. If a later step fails, orphaned `.srs` files may remain.
 
 The standalone `cheburbox rule-set compile --server X` command exists for the case where you want to recompile rule-sets without regenerating `config.json`. The same compilation also runs automatically inside `cheburbox generate`.
 
@@ -186,7 +196,7 @@ Behavioral quirks worth knowing before debugging.
 
 - **`--full-reset` replaced an earlier `--clean` flag.** The current source uses `--full-reset` only.
 - **`--full-reset` and `--orphan` are mutually exclusive.** Cobra rejects both at parse time.
-- **`--full-reset` discards every persisted credential.** UUIDs, passwords, x25519 keypairs, Reality short IDs, obfs passwords — all regenerated. Already-deployed clients will lose access.
+- **`--full-reset` discards every persisted credential.** UUIDs, passwords, x25519 keypairs, Reality short IDs, obfs passwords, AmneziaWG private keys, peer public/preshared keys, and amnezia obfuscation params — all regenerated. Already-deployed clients will lose access.
 - **`--full-reset` also forces cert regeneration**, regardless of SAN match.
 - **By default, undeclared users are preserved.** This protects auto-provisioned cross-server users from disappearing on regeneration.
 - **`--orphan` keeps only persisted users that are declared in the current `cheburbox.json` or referenced by another server's cross-server outbound.** Stale users from decommissioned proxies are removed.
@@ -218,6 +228,7 @@ Behavioral quirks worth knowing before debugging.
 - **Self-signed Ed25519 cert validity = 365 days.** Cheburbox checks regeneration **only by SAN match, not by expiration.** Long-running deployments may keep an expired cert until `--full-reset`.
 - **Output files are mode `0644`, directories are `0750`.** A `gosec G306` nolint comment justifies the file mode.
 - **Rule-set `.srs` compilation has a disk side-effect during Pass 1.** Failed later steps may leave orphaned `.srs` files even though `config.json` was never written.
+- **AmneziaWG server key material is cached in-process across the two-pass generation.** The resolved server private key and shared amnezia block are cached (`amneziaWGServerMaterial`, `generate/state.go`) keyed by `(server, tag)`. When a cross-server AmneziaWG client dirties its target server and triggers a re-run within the same generate pass, the server reuses the exact same key material as the first pass. Without this cache, the server would regenerate fresh keys, desynchronizing the already-built client peer that captured the first pass's public key.
 
 ### Validation behavior
 
