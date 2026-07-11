@@ -401,9 +401,9 @@ For `vless`, `hysteria2`, and `amneziawg`, cheburbox builds a cross-server refer
 | Field                         | Type       | Used by              | Notes                                                                                         |
 | ----------------------------- | ---------- | -------------------- | --------------------------------------------------------------------------------------------- |
 | `tag`                         | `string`   | all                  | Required.                                                                                     |
-| `server`                      | `string`   | vless / hysteria2    | Target server directory name.                                                                 |
-| `inbound`                     | `string`   | vless / hysteria2    | Target inbound `tag` on the target server.                                                    |
-| `user`                        | `string`   | vless / hysteria2    | Defaults to **this** server's directory name when omitted.                                    |
+| `server`                      | `string`   | vless / hysteria2 / amneziawg | Target server directory name.                                                                 |
+| `inbound`                     | `string`   | vless / hysteria2 / amneziawg | Target inbound `tag` on the target server.                                                    |
+| `user`                        | `string`   | vless / hysteria2 / amneziawg | Defaults to **this** server's directory name when omitted.                                    |
 | `flow`                        | `string`   | vless                | Honored when set; the generated cross-server outbound otherwise mirrors the target user's flow. |
 | `endpoint`                    | `string`   | vless / hysteria2    | Overrides the target server's `endpoint` field.                                               |
 | `domain_resolver`             | `string`   | vless / hysteria2    | DNS server tag used to resolve the outbound's hostname.                                       |
@@ -506,7 +506,7 @@ If `route` is omitted entirely, the generated route forces `auto_detect_interfac
 | ------------- | -------- | ------------------------------------- | ------------------------------------------------------------------------------ |
 | `type`        | `string` | Yes                                   | One of `local`, `udp`, `tcp`, `tls`, `quic`, `https`, `http3`, `dhcp`, `fakeip`. |
 | `tag`         | `string` | Yes                                   |                                                                                |
-| `server`      | `string` | Yes if `type` is one of `udp`, `tcp`, `tls`, `quic`, `https`, `http3` | DNS server hostname/IP.                                |
+| `server`      | `string` | De facto for `udp`/`tcp`/`tls`/`quic`/`https`/`http3` | DNS server hostname/IP. Required by sing-box at runtime, not enforced by cheburbox. |
 | `server_port` | `int`    | No                                    |                                                                                |
 | `detour`      | `string` | No                                    | Outbound tag used to reach this DNS server.                                    |
 
@@ -598,7 +598,7 @@ AmneziaWG cross-server outbounds participate in the same DAG/topological-generat
 | ------------- | -------- | ----------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `type`        | `string` | Yes                                       | One of `local`, `udp`, `tcp`, `tls`, `quic`, `https`, `http3`, `dhcp`, `fakeip`.           |
 | `tag`         | `string` | Yes                                       |                                                                                            |
-| `server`      | `string` | Yes for `udp`/`tcp`/`tls`/`quic`/`https`/`http3` |                                                                                       |
+| `server`      | `string` | De facto for `udp`/`tcp`/`tls`/`quic`/`https`/`http3` | sing-box requires this at runtime; cheburbox does not enforce it.                           |
 | `server_port` | `int`    | No                                        |                                                                                            |
 | `detour`      | `string` | No                                        | Outbound tag for resolving DNS queries.                                                    |
 
@@ -619,6 +619,7 @@ AmneziaWG cross-server outbounds participate in the same DAG/topological-generat
 | `listen_port`                | `int`               | all                  | `0..65535`. `0` is allowed (TUN).                                                              |
 | `users`                      | `[]InboundUser`     | vless / hysteria2 / amneziawg | Object array. Per-user `flow` honored (VLESS). For `amneziawg`, each user is a client peer.     |
 | `tls`                        | `*InboundTLS`       | vless / hysteria2    | TLS / Reality config.                                                                          |
+| `multiplex`                   | `*InboundMultiplex` | vless                | Server-side [multiplex](#multiplex) (mux) config.                                             |
 | `obfs`                       | `*ObfsConfig`       | hysteria2            |                                                                                                |
 | `masquerade`                 | `*MasqueradeConfig` | hysteria2            |                                                                                                |
 | `amnezia`                    | `*AmneziaConfig`    | amneziawg            | User-facing obfuscation preferences (`protocol`, `mtu`); raw params generated by `amnezigo`.   |
@@ -704,12 +705,13 @@ AmneziaWG cross-server outbounds participate in the same DAG/topological-generat
 
 ### `AmneziaConfig` (AmneziaWG only)
 
-Only `protocol` and `mtu` are user-facing. The actual obfuscation parameters (Jc/Jmin/Jmax/S1-S4/H1-H4 server-side, plus I1-I5 client-side) are generated by the `amnezigo` library and persisted in `config.json` so they remain stable across runs — users never specify the raw params.
+Only `protocol`, `preset`, and `mtu` are user-facing. The actual obfuscation parameters (Jc/Jmin/Jmax/S1-S4/H1-H4 server-side, plus I1-I5 client-side) are generated by the `amnezigo` library and persisted in `config.json` so they remain stable across runs — users never specify the raw params.
 
-| Field      | Type     | Required | Allowed values                       | Description                                               |
-| ---------- | -------- | -------- | ------------------------------------ | --------------------------------------------------------- |
-| `protocol` | `string` | No       | `quic`, `dns`, `dtls`, `stun`, `sip` | Transport the obfuscation magic bytes mimic. Default `quic`. |
-| `mtu`      | `int`    | No       |                                      | Obfuscation-layer MTU. Default `1280`.                    |
+| Field      | Type     | Required | Allowed values                                     | Description                                               |
+| ---------- | -------- | -------- | -------------------------------------------------- | --------------------------------------------------------- |
+| `protocol` | `string` | No       | `quic`, `dns`, `dtls`, `stun`, `sip`, `rtp`, `random` | Transport the obfuscation magic bytes mimic. Default `quic`. |
+| `preset`   | `string` | No       | One of the preset names below                      | Named bundle of shared server-side params. Empty → fully random (default). See [Presets](#presets). |
+| `mtu`      | `int`    | No       |                                                    | Obfuscation-layer MTU. Default `1280`.                    |
 
 ### `Outbound`
 
