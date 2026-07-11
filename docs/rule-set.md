@@ -78,7 +78,9 @@ Output is opaque binary written by sing-box's `srs.Write`. Files land at:
 
 In server mode the command prints `Compiled <name> -> <path>` per file.
 
-> **Note:** Rule-set compilation is **not** an in-memory, atomic operation. The compiler writes the `.srs` file directly to disk via `os.Create` (and, when invoked from `cheburbox generate`, re-reads it back into the managed file list). This happens before the atomic write boundary that protects the rest of generation, so a failure in a later step can leave an orphaned `.srs` file on disk.
+> **Note:** Rule-set compilation writes the `.srs` file directly to disk via `os.Create` — it is not deferred to the batch write phase. When invoked from `cheburbox generate`, the compiled bytes are then re-read into the managed file list and written again by `writeResults`, so each `.srs` is written twice to the same path. A failure in a later build step can leave an orphaned `.srs` file on disk.
+
+> **Warning:** `--dry-run` does **not** suppress this side-effect. Because `compileRuleSets` runs inside the generation phase (before the renderer choice between dry-run and real output), `cheburbox generate --dry-run` still creates or updates `rule-set/<name>.srs` files on disk, despite the flag's "without writing files" description.
 
 ## When to compile
 
