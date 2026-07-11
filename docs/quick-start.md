@@ -87,7 +87,7 @@ What happens:
 1. **Discover.** Cheburbox lists the immediate subdirectories of the current directory and picks the ones containing `cheburbox.json` (or `.cheburbox.jsonnet`).
 2. **Resolve & build.** For each server it loads the schema, validates it, and builds a sing-box `option.Options` value in memory. Cross-server outbound references (none in this minimal example) would be sorted into a DAG and processed leaves-first.
 3. **Persist credentials.** Cheburbox reads any pre-existing `<server>/config.json` from a previous run and reuses its UUIDs, passwords, and Reality keys so existing clients keep working. On a fresh project there is nothing to read; new credentials are generated.
-4. **Two-pass atomic write.** Pass 1 builds every server's output in memory. **Only** if every server succeeds does Pass 2 begin writing files to disk.
+4. **In-memory build, then write.** All servers are built in memory first; files are written only after every server succeeds. A mid-write failure (e.g. disk full) can leave partial output — the write itself is not transactional.
 
 For our single-server example the resulting tree is:
 
@@ -115,7 +115,7 @@ $ cheburbox validate
 
 `validate` runs in two phases:
 
-- **Phase 1** — schema and cross-server invariants: required fields, port ranges, cross-server outbound targets resolve, no DAG cycles, no two Hysteria2 inbounds sharing a `tls.server_name` on the same server, urltest/selector member tags exist on the same server.
+- **Phase 1** — schema and cross-server invariants: required fields, port ranges, cross-server outbound targets resolve, no DAG cycles, no two Hysteria2 inbounds sharing a `tls.server_name` on the same server, AmneziaWG inbound/outbound constraints (CIDR, protocol, target resolution), and urltest/selector member tags exist on the same server.
 - **Phase 2** — sing-box parsing: cheburbox calls `box.New` on each `<server>/config.json` in-process. This catches anything sing-box itself would reject at startup (unknown option keys, malformed pass-through `route.rules`, etc.).
 
 > **Tip.** If you run `cheburbox validate` **before** you've ever run `cheburbox generate`, Phase 2 emits a Warning per server (`skipped sing-box check: <server>/config.json not found`) and reports the server as PASS. The warning is informational, not a failure — Phase 1 still runs.
@@ -143,4 +143,4 @@ Other useful flags (full list in [Links](./links.md)):
 ## What's next
 
 - [Configuration](./configuration.md) — full schema reference for `cheburbox.json` (every field on every inbound, outbound, DNS, route, Reality, Hysteria2 obfs/masquerade, experimental cache, etc.).
-- [Architecture](./architecture.md) — how the two type layers, the cross-server DAG, credential persistence, and the two-pass atomic write fit together.
+- [Architecture](./architecture.md) — how the two type layers, the cross-server DAG, credential persistence, and the two-pass generation model fit together.
