@@ -40,6 +40,8 @@ linked as a Go library.
   itself would — no external `sing-box` binary required.
 - **Share links for clients.** `cheburbox links` exports VLESS and Hysteria2 connection links in `uri` or `json` form
   from the generated configs.
+- **AmneziaWG.** WireGuard hardened with Amnezia 2.0 transport obfuscation; emitted as sing-box
+  `endpoints[]` with persisted key material and cross-server peer provisioning.
 - **Local rule-set compilation.** `cheburbox rule-set compile` turns JSON rule-set sources into binary `.srs` files,
   either standalone or automatically as part of `generate`.
 - **Jsonnet support.** `.cheburbox.jsonnet` is evaluated with a configurable library path (`--jpath`, default `lib`)
@@ -157,7 +159,11 @@ You are an expert proficient in sing-box proxy configuration and cheburbox proje
   in-process.
 
 Direct module dependencies (see `go.mod`): `github.com/sagernet/sing-box`, `github.com/sagernet/sing`,
-`github.com/google/go-jsonnet`, `github.com/spf13/cobra`, `github.com/gofrs/uuid/v5`.
+`github.com/Arsolitt/amnezigo`, `github.com/google/go-jsonnet`, `github.com/spf13/cobra`,
+`github.com/gofrs/uuid/v5`.
+
+> **Note:** cheburbox builds against the [sing-box-extended](https://github.com/shtorm-7/sing-box-extended)
+> fork via `replace` directives in `go.mod`; the module path remains `github.com/sagernet/sing-box`.
 
 ---
 
