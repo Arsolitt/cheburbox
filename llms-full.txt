@@ -729,7 +729,7 @@ Reference documentation for the `cheburbox.json` schema. Each server directory c
 | `dns` | `DNS` | — | Yes | DNS configuration. At least one server required. |
 | `endpoint` | `string` | — | Conditional | Public endpoint address (IP or IP:port) of the server. Required when any inbounds are defined. Client-only servers (outbounds only) do not need an endpoint. |
 | `inbounds` | `[]Inbound` | `[]` | No | Inbound configurations. Supported types: `tun`, `vless`, `hysteria2`, `amneziawg`. |
-| `outbounds` | `[]Outbound` | `[]` | No | Outbound configurations. Supported types: `direct`, `urltest`, `selector`, `vless` (cross-server), `hysteria2` (cross-server), `amneziawg` (cross-server). |
+| `outbounds` | `[]Outbound` | `[]` | No | Outbound configurations. Supported types: `direct`, `urltest`, `selector`, `fallback`, `failover`, `vless` (cross-server), `hysteria2` (cross-server), `amneziawg` (cross-server). |
 | `route` | `Route` | — | No | Routing configuration. When omitted, `auto_detect_interface` is automatically set to `true` in generated output. |
 | `log` | `object` | — | No | Sing-box log options as raw JSON. Passed through to sing-box unvalidated. |
 | `experimental` | `Experimental` | — | No | Experimental sing-box settings. |
@@ -800,7 +800,7 @@ These flags are mutually exclusive and cannot be used together.
 
 When server A has an outbound referencing server B's inbound, cheburbox resolves credentials from server B's state. This may trigger regeneration of server B's config if a user needs to be provisioned.
 
-The `vless`, `hysteria2`, and `amneziawg` outbound types support cross-server references (the `server` and `inbound` fields). Other outbound types (`direct`, `urltest`, `selector`) are local-only.
+The `vless`, `hysteria2`, and `amneziawg` outbound types support cross-server references (the `server` and `inbound` fields). Other outbound types (`direct`, `urltest`, `selector`, `fallback`, `failover`) are local-only.
 
 ## Short ID Format
 
@@ -1053,7 +1053,7 @@ url: /outbounds
 ---
 # Outbounds
 
-Outbound configurations define how sing-box routes outgoing traffic. Six outbound types are implemented: `direct`, `urltest`, `selector`, `vless` (cross-server), `hysteria2` (cross-server), and `amneziawg` (cross-server).
+Outbound configurations define how sing-box routes outgoing traffic. Eight outbound types are implemented: `direct`, `urltest`, `selector`, `fallback`, `failover`, `vless` (cross-server), `hysteria2` (cross-server), and `amneziawg` (cross-server).
 
 ## Direct Outbound
 
@@ -1125,6 +1125,56 @@ Manual outbound selection from a group.
   "type": "selector",
   "tag": "manual-proxy",
   "outbounds": ["sp-p-2-vless", "sp-p-2-hy"]
+}
+```
+
+## Fallback Outbound
+
+Priority-based outbound switching with blacklist timeout. When the current outbound fails, it is blacklisted for the configured duration and the next outbound is tried. Requires sing-box-extended.
+
+> **`type`**: `"fallback"`
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | `string` | — | Yes | Outbound identifier. |
+| `type` | `string` | — | Yes | Must be `"fallback"`. |
+| `outbounds` | `[]string` | — | Yes | Tags of outbounds to try in priority order. |
+| `blacklist_timeout` | `string` | — | No | Blacklist duration for failed outbounds as a Go duration string (e.g. `"30s"`, `"5m"`). |
+
+### Example
+
+```json
+{
+  "type": "fallback",
+  "tag": "fallback-group",
+  "outbounds": ["vless-primary", "vless-backup"],
+  "blacklist_timeout": "30s"
+}
+```
+
+## Failover Outbound
+
+Automatic outbound switching with sequential or cycle strategies and configurable delay. Children are declared as normal outbounds at the top level and referenced by tag; the generator inlines the built outbound objects into the failover group. Requires sing-box-extended.
+
+> **`type`**: `"failover"`
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | `string` | — | Yes | Outbound identifier. |
+| `type` | `string` | — | Yes | Must be `"failover"`. |
+| `outbounds` | `[]string` | — | Yes | Tags of child outbounds to try. Must not reference another failover outbound. |
+| `strategy` | `string` | `"sequential"` | No | Dial strategy: `"sequential"` (try in order, advance on failure) or `"cycle"` (try each in turn on every dial). |
+| `delay` | `string` | — | No | Delay between failed dial attempts as a Go duration string (e.g. `"2s"`, `"500ms"`). |
+
+### Example
+
+```json
+{
+  "type": "failover",
+  "tag": "failover-out",
+  "outbounds": ["primary", "backup"],
+  "strategy": "cycle",
+  "delay": "2s"
 }
 ```
 
@@ -2381,7 +2431,8 @@ These checks run independently for each server.
 | `config.Validate` | Schema version must be `1`. At least one DNS server must be defined. `endpoint` is required when inbounds are defined. Each inbound `listen_port` must be in range 0–65535. |
 | Hysteria2 server_name collision | Two hysteria2 inbounds on the same server must not share the same `tls.server_name`, as this would cause cert file conflicts. Reports the first and last colliding tags. |
 | Outbound-inbound reference | Cross-server outbounds (`server` + `inbound` fields) must reference an inbound tag that exists on the target server. |
-| Outbound group reference | `urltest` and `selector` outbounds must reference only outbound tags that exist on the same server. An empty `outbounds` list is valid and produces no error. |
+| Outbound group reference | `urltest`, `selector`, `fallback`, and `failover` outbounds must reference only outbound tags that exist on the same server. An empty `outbounds` list is valid and produces no error. |
+| Failover strategy | `failover` outbounds must use a valid strategy: empty (defaults to `sequential`), `"sequential"`, or `"cycle"`. A failover outbound must not reference another failover outbound. |
 
 ## Phase 2: Sing-Box Check
 
@@ -2467,7 +2518,7 @@ Cheburbox only implements `tun`, `vless`, `hysteria2`, and `amneziawg` inbound t
 
 ### Why does my outbound with a server reference fail for non-cross-server types?
 
-The `vless`, `hysteria2`, and `amneziawg` outbound types support cross-server references (the `server` and `inbound` fields). Other outbound types (`direct`, `urltest`, `selector`, etc.) are local-only.
+The `vless`, `hysteria2`, and `amneziawg` outbound types support cross-server references (the `server` and `inbound` fields). Other outbound types (`direct`, `urltest`, `selector`, `fallback`, `failover`, etc.) are local-only.
 
 ### Why does `.cheburbox.jsonnet` seem to ignore my `cheburbox.json` changes?
 
