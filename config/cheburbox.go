@@ -171,20 +171,23 @@ type BrutalConfig struct {
 // Outbound represents a single outbound configuration.
 // Use Type field to determine which fields are relevant.
 type Outbound struct {
-	Endpoint                  string             `json:"endpoint,omitempty"`
-	DomainResolver            string             `json:"domain_resolver,omitempty"`
-	Server                    string             `json:"server,omitempty"`
-	Inbound                   string             `json:"inbound,omitempty"`
-	User                      string             `json:"user,omitempty"`
-	Flow                      string             `json:"flow,omitempty"`
 	Multiplex                 *OutboundMultiplex `json:"multiplex,omitempty"`
-	Interval                  string             `json:"interval,omitempty"`
-	Type                      string             `json:"type"`
-	Tag                       string             `json:"tag"`
 	URL                       string             `json:"url,omitempty"`
 	IdleTimeout               string             `json:"idle_timeout,omitempty"`
-	Outbounds                 []string           `json:"outbounds,omitempty"`
+	Inbound                   string             `json:"inbound,omitempty"`
+	Endpoint                  string             `json:"endpoint,omitempty"`
+	Flow                      string             `json:"flow,omitempty"`
+	DomainResolver            string             `json:"domain_resolver,omitempty"`
+	Interval                  string             `json:"interval,omitempty"`
+	Type                      string             `json:"type"`
+	Server                    string             `json:"server,omitempty"`
+	Tag                       string             `json:"tag"`
+	User                      string             `json:"user,omitempty"`
+	Delay                     string             `json:"delay,omitempty"`
+	Strategy                  string             `json:"strategy,omitempty"`
+	BlacklistTimeout          string             `json:"blacklist_timeout,omitempty"`
 	Address                   []string           `json:"address,omitempty"`
+	Outbounds                 []string           `json:"outbounds,omitempty"`
 	MTU                       int                `json:"mtu,omitempty"`
 	Tolerance                 uint16             `json:"tolerance,omitempty"`
 	InterruptExistConnections bool               `json:"interrupt_exist_connections,omitempty"`

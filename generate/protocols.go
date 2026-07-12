@@ -17,6 +17,10 @@ const (
 	TypeURLTest = "urltest"
 	// TypeSelector is the selector outbound group protocol type.
 	TypeSelector = "selector"
+	// TypeFallback is the fallback outbound group protocol type (sing-box-extended).
+	TypeFallback = "fallback"
+	// TypeFailover is the failover outbound group protocol type (sing-box-extended).
+	TypeFailover = "failover"
 )
 
 // sing-box endpoint type strings. These are the Type values sing-box uses inside its
@@ -34,4 +38,14 @@ const (
 	ObfsSalamander = "salamander"
 	// FlowXTLSRPRXVision is the VLESS XTLS Vision flow control value.
 	FlowXTLSRPRXVision = "xtls-rprx-vision"
+)
+
+// Failover dial strategy values for the failover outbound group.
+const (
+	// FailoverStrategySequential dials outbounds in declaration order, advancing
+	// to the next only when the current one fails. This is the default.
+	FailoverStrategySequential = "sequential"
+	// FailoverStrategyCycle tries each outbound in turn on every dial, advancing
+	// to the next on failure with an optional delay before retrying.
+	FailoverStrategyCycle = "cycle"
 )

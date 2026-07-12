@@ -947,3 +947,141 @@ func TestCheckAmneziaWGOutboundMissingServer(t *testing.T) {
 		t.Errorf("error should mention target server, got: %v", errs[0])
 	}
 }
+
+func TestCheckOutboundGroupRefsFallbackValid(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+			{Type: generate.TypeFallback, Tag: "fb-group", Outbounds: []string{"direct"}},
+		},
+	}
+
+	errs := checkOutboundGroupRefs("srv1", cfg)
+	if len(errs) != 0 {
+		t.Fatalf("expected 0 errors, got %d: %v", len(errs), errs)
+	}
+}
+
+func TestCheckOutboundGroupRefsFallbackInvalid(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+			{Type: generate.TypeFallback, Tag: "fb-group", Outbounds: []string{"unknown-out"}},
+		},
+	}
+
+	errs := checkOutboundGroupRefs("srv1", cfg)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+	}
+	if !strings.Contains(errs[0].Error(), "unknown-out") {
+		t.Errorf("error should mention unknown outbound tag, got: %v", errs[0])
+	}
+}
+
+func TestCheckOutboundGroupRefsFailoverValid(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+			{Type: generate.TypeFailover, Tag: "fo-group", Outbounds: []string{"direct"}},
+		},
+	}
+
+	errs := checkOutboundGroupRefs("srv1", cfg)
+	if len(errs) != 0 {
+		t.Fatalf("expected 0 errors, got %d: %v", len(errs), errs)
+	}
+}
+
+func TestCheckOutboundGroupRefsFailoverInvalid(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+			{Type: generate.TypeFailover, Tag: "fo-group", Outbounds: []string{"unknown-out"}},
+		},
+	}
+
+	errs := checkOutboundGroupRefs("srv1", cfg)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+	}
+	if !strings.Contains(errs[0].Error(), "unknown-out") {
+		t.Errorf("error should mention unknown outbound tag, got: %v", errs[0])
+	}
+}
+
+func TestCheckFailoverStrategy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		strategy  string
+		wantError bool
+	}{
+		{name: "empty defaults to sequential", strategy: "", wantError: false},
+		{name: "sequential", strategy: generate.FailoverStrategySequential, wantError: false},
+		{name: "cycle", strategy: generate.FailoverStrategyCycle, wantError: false},
+		{name: "invalid", strategy: "invalid", wantError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.Config{
+				Outbounds: []config.Outbound{
+					{Type: "direct", Tag: "direct"},
+					{
+						Type:      generate.TypeFailover,
+						Tag:       "fo-group",
+						Strategy:  tt.strategy,
+						Outbounds: []string{"direct"},
+					},
+				},
+			}
+
+			errs := checkFailoverOutbounds("srv1", cfg)
+			if tt.wantError && len(errs) == 0 {
+				t.Errorf("expected error for strategy %q, got none", tt.strategy)
+			}
+			if !tt.wantError && len(errs) != 0 {
+				t.Errorf("expected no error for strategy %q, got %v", tt.strategy, errs)
+			}
+		})
+	}
+}
+
+func TestCheckFailoverNestedFailover(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+			{Type: generate.TypeFailover, Tag: "fo-a", Outbounds: []string{"fo-b"}},
+			{Type: generate.TypeFailover, Tag: "fo-b", Outbounds: []string{"direct"}},
+		},
+	}
+
+	errs := checkFailoverOutbounds("srv1", cfg)
+	if len(errs) == 0 {
+		t.Fatal("expected error for nested failover, got none")
+	}
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "cannot reference another failover") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("error should mention nested failover, got: %v", errs)
+	}
+}

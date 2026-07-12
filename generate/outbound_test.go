@@ -829,3 +829,182 @@ func TestDecodePinSHA256InvalidBase64(t *testing.T) {
 		t.Fatal("expected error for invalid base64")
 	}
 }
+
+func TestBuildFallbackOutbound(t *testing.T) {
+	t.Parallel()
+
+	out := config.Outbound{
+		Type:             TypeFallback,
+		Tag:              "fallback-group",
+		Outbounds:        []string{"vless-out", "hy2-out"},
+		BlacklistTimeout: "30s",
+	}
+	result, err := BuildOutbound(out)
+	if err != nil {
+		t.Fatalf("BuildOutbound: %v", err)
+	}
+	if result.Tag != "fallback-group" {
+		t.Errorf("Tag = %q, want fallback-group", result.Tag)
+	}
+	if result.Type != TypeFallback {
+		t.Errorf("Type = %q, want fallback", result.Type)
+	}
+	opts, ok := result.Options.(*option.FallbackOutboundOptions)
+	if !ok {
+		t.Fatalf("Options type = %T, want *option.FallbackOutboundOptions", result.Options)
+	}
+	if len(opts.Outbounds) != 2 {
+		t.Errorf("Outbounds len = %d, want 2", len(opts.Outbounds))
+	}
+	if opts.BlacklistTimeout != badoption.Duration(30*time.Second) {
+		t.Errorf("BlacklistTimeout = %v, want 30s", opts.BlacklistTimeout)
+	}
+}
+
+func TestBuildFallbackOutboundNoBlacklistTimeout(t *testing.T) {
+	t.Parallel()
+
+	out := config.Outbound{
+		Type:      TypeFallback,
+		Tag:       "fallback-group",
+		Outbounds: []string{"vless-out"},
+	}
+	result, err := BuildOutbound(out)
+	if err != nil {
+		t.Fatalf("BuildOutbound: %v", err)
+	}
+	opts, ok := result.Options.(*option.FallbackOutboundOptions)
+	if !ok {
+		t.Fatalf("Options type = %T, want *option.FallbackOutboundOptions", result.Options)
+	}
+	if opts.BlacklistTimeout != 0 {
+		t.Errorf("BlacklistTimeout = %v, want 0", opts.BlacklistTimeout)
+	}
+}
+
+func TestBuildFallbackOutboundInvalidBlacklistTimeout(t *testing.T) {
+	t.Parallel()
+
+	out := config.Outbound{
+		Type:             TypeFallback,
+		Tag:              "fallback-group",
+		BlacklistTimeout: "not-a-duration",
+	}
+	_, err := BuildOutbound(out)
+	if err == nil {
+		t.Fatal("expected error for invalid blacklist_timeout, got nil")
+	}
+}
+
+func TestBuildFailoverOutbound(t *testing.T) {
+	t.Parallel()
+
+	outbounds := []config.Outbound{
+		{Type: TypeDirect, Tag: "direct"},
+		{
+			Type:      TypeFailover,
+			Tag:       "failover-out",
+			Outbounds: []string{"direct"},
+			Strategy:  "cycle",
+			Delay:     "2s",
+		},
+	}
+	result, err := buildOutboundsWithState(outbounds, nil, "test")
+	if err != nil {
+		t.Fatalf("buildOutboundsWithState: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("result len = %d, want 2", len(result))
+	}
+	fo := result[1]
+	if fo.Type != TypeFailover {
+		t.Errorf("failover Type = %q, want failover", fo.Type)
+	}
+	if fo.Tag != "failover-out" {
+		t.Errorf("failover Tag = %q, want failover-out", fo.Tag)
+	}
+	opts, ok := fo.Options.(*option.FailoverOutboundOptions)
+	if !ok {
+		t.Fatalf("Options type = %T, want *option.FailoverOutboundOptions", fo.Options)
+	}
+	if len(opts.Outbounds) != 1 {
+		t.Fatalf("inline Outbounds len = %d, want 1", len(opts.Outbounds))
+	}
+	if opts.Outbounds[0].Tag != "direct" {
+		t.Errorf("inline child Tag = %q, want direct", opts.Outbounds[0].Tag)
+	}
+	if opts.Strategy != "cycle" {
+		t.Errorf("Strategy = %q, want cycle", opts.Strategy)
+	}
+	if opts.Delay != badoption.Duration(2*time.Second) {
+		t.Errorf("Delay = %v, want 2s", opts.Delay)
+	}
+}
+
+func TestBuildFailoverOutboundUnknownRef(t *testing.T) {
+	t.Parallel()
+
+	outbounds := []config.Outbound{
+		{Type: TypeDirect, Tag: "direct"},
+		{
+			Type:      TypeFailover,
+			Tag:       "failover-out",
+			Outbounds: []string{"nonexistent"},
+		},
+	}
+	_, err := buildOutboundsWithState(outbounds, nil, "test")
+	if err == nil {
+		t.Fatal("expected error for unknown reference, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown outbound") {
+		t.Errorf("error should mention unknown outbound, got: %v", err)
+	}
+}
+
+func TestBuildFailoverOutboundInvalidDelay(t *testing.T) {
+	t.Parallel()
+
+	outbounds := []config.Outbound{
+		{Type: TypeDirect, Tag: "direct"},
+		{
+			Type:      TypeFailover,
+			Tag:       "failover-out",
+			Outbounds: []string{"direct"},
+			Delay:     "bad",
+		},
+	}
+	_, err := buildOutboundsWithState(outbounds, nil, "test")
+	if err == nil {
+		t.Fatal("expected error for invalid delay, got nil")
+	}
+}
+
+func TestBuildFailoverOutboundOrderPreserved(t *testing.T) {
+	t.Parallel()
+
+	outbounds := []config.Outbound{
+		{Type: TypeDirect, Tag: "direct"},
+		{
+			Type:      TypeFailover,
+			Tag:       "failover-out",
+			Outbounds: []string{"direct"},
+		},
+		{Type: TypeSelector, Tag: "selector-out", Outbounds: []string{"direct"}},
+	}
+	result, err := buildOutboundsWithState(outbounds, nil, "test")
+	if err != nil {
+		t.Fatalf("buildOutboundsWithState: %v", err)
+	}
+	if len(result) != 3 {
+		t.Fatalf("result len = %d, want 3", len(result))
+	}
+	if result[0].Tag != "direct" {
+		t.Errorf("result[0] Tag = %q, want direct", result[0].Tag)
+	}
+	if result[1].Tag != "failover-out" {
+		t.Errorf("result[1] Tag = %q, want failover-out", result[1].Tag)
+	}
+	if result[2].Tag != "selector-out" {
+		t.Errorf("result[2] Tag = %q, want selector-out", result[2].Tag)
+	}
+}

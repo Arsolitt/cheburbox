@@ -50,6 +50,8 @@ func BuildOutboundWithState(
 		return buildURLTestOutbound(out)
 	case TypeSelector:
 		return buildSelectorOutbound(out)
+	case TypeFallback:
+		return buildFallbackOutbound(out)
 	case TypeVLESS:
 		return buildCrossServerVlessOutbound(out, state, cfg)
 	case TypeHysteria2:
@@ -109,6 +111,54 @@ func buildSelectorOutbound(out config.Outbound) (option.Outbound, error) {
 			GroupCommonOption: option.GroupCommonOption{
 				Outbounds: out.Outbounds,
 			},
+		},
+	}, nil
+}
+
+func buildFallbackOutbound(out config.Outbound) (option.Outbound, error) {
+	blacklistTimeout, err := parseInterval(out.BlacklistTimeout)
+	if err != nil {
+		return option.Outbound{}, fmt.Errorf("parse fallback blacklist_timeout: %w", err)
+	}
+
+	return option.Outbound{
+		Type: TypeFallback,
+		Tag:  out.Tag,
+		Options: &option.FallbackOutboundOptions{
+			Outbounds:        out.Outbounds,
+			BlacklistTimeout: blacklistTimeout,
+		},
+	}, nil
+}
+
+// buildFailoverOutbound constructs a failover outbound group, resolving tag
+// references in out.Outbounds to the already-built option.Outbound objects
+// supplied in builtByTag. The children are inlined into the failover options.
+func buildFailoverOutbound(
+	out config.Outbound,
+	builtByTag map[string]option.Outbound,
+) (option.Outbound, error) {
+	children := make([]option.Outbound, 0, len(out.Outbounds))
+	for _, refTag := range out.Outbounds {
+		child, ok := builtByTag[refTag]
+		if !ok {
+			return option.Outbound{}, fmt.Errorf("references unknown outbound %q", refTag)
+		}
+		children = append(children, child)
+	}
+
+	delay, err := parseInterval(out.Delay)
+	if err != nil {
+		return option.Outbound{}, fmt.Errorf("parse failover delay: %w", err)
+	}
+
+	return option.Outbound{
+		Type: TypeFailover,
+		Tag:  out.Tag,
+		Options: &option.FailoverOutboundOptions{
+			Strategy:  out.Strategy,
+			Delay:     delay,
+			Outbounds: children,
 		},
 	}, nil
 }

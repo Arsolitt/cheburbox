@@ -156,6 +156,7 @@ func runPhase1(configs map[string]config.Config) []ServerResult {
 		errs = append(errs, checkAmneziaWGInbounds(name, cfg)...)
 		errs = append(errs, checkAmneziaWGOutbounds(name, cfg)...)
 		errs = append(errs, checkOutboundGroupRefs(name, cfg)...)
+		errs = append(errs, checkFailoverOutbounds(name, cfg)...)
 		errs = append(errs, crossServerErrs[name]...)
 		errs = append(errs, amneziaWGCollisionErrs[name]...)
 
@@ -329,8 +330,8 @@ func findGenerateFile(files []generate.FileOutput, path string) *generate.FileOu
 	return nil
 }
 
-// checkOutboundGroupRefs validates that urltest and selector outbound groups
-// reference only outbound tags that exist in the same server.
+// checkOutboundGroupRefs validates that urltest, selector, fallback, and failover
+// outbound groups reference only outbound tags that exist in the same server.
 func checkOutboundGroupRefs(server string, cfg config.Config) []error {
 	validTags := make(map[string]bool)
 	for _, out := range cfg.Outbounds {
@@ -340,7 +341,8 @@ func checkOutboundGroupRefs(server string, cfg config.Config) []error {
 	var errs []error
 
 	for _, out := range cfg.Outbounds {
-		if out.Type != generate.TypeURLTest && out.Type != generate.TypeSelector {
+		if out.Type != generate.TypeURLTest && out.Type != generate.TypeSelector &&
+			out.Type != generate.TypeFallback && out.Type != generate.TypeFailover {
 			continue
 		}
 		if len(out.Outbounds) == 0 {
@@ -359,6 +361,42 @@ func checkOutboundGroupRefs(server string, cfg config.Config) []error {
 		}
 	}
 
+	return errs
+}
+
+// checkFailoverOutbounds validates failover-specific constraints: strategy must
+// be empty, "sequential", or "cycle"; and a failover outbound must not reference
+// another failover outbound (the two-pass builder cannot resolve nested failover).
+func checkFailoverOutbounds(server string, cfg config.Config) []error {
+	failoverTags := make(map[string]bool)
+	for _, out := range cfg.Outbounds {
+		if out.Type == generate.TypeFailover {
+			failoverTags[out.Tag] = true
+		}
+	}
+
+	var errs []error
+	for _, out := range cfg.Outbounds {
+		if out.Type != generate.TypeFailover {
+			continue
+		}
+		switch out.Strategy {
+		case "", generate.FailoverStrategySequential, generate.FailoverStrategyCycle:
+		default:
+			errs = append(errs, fmt.Errorf(
+				"server %q failover outbound %q: invalid strategy %q (must be sequential or cycle)",
+				server, out.Tag, out.Strategy,
+			))
+		}
+		for _, ref := range out.Outbounds {
+			if failoverTags[ref] {
+				errs = append(errs, fmt.Errorf(
+					"server %q failover outbound %q: cannot reference another failover outbound %q",
+					server, out.Tag, ref,
+				))
+			}
+		}
+	}
 	return errs
 }
 

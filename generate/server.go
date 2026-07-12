@@ -833,14 +833,34 @@ func buildOutboundsWithState(
 	state *ServerState,
 	serverName string,
 ) ([]option.Outbound, error) {
-	result := make([]option.Outbound, 0, len(outbounds))
+	// First pass: build all non-failover outbounds into a tag→option map.
+	builtByTag := make(map[string]option.Outbound, len(outbounds))
 	for _, out := range outbounds {
+		if out.Type == TypeFailover {
+			continue
+		}
 		ob, err := BuildOutboundWithState(out, state, WithDefaultUser(serverName))
 		if err != nil {
 			return nil, fmt.Errorf("outbound %q: %w", out.Tag, err)
 		}
-		result = append(result, ob)
+		builtByTag[out.Tag] = ob
 	}
+
+	// Second pass: iterate in original order; build failover outbounds with
+	// resolved inline children.
+	result := make([]option.Outbound, 0, len(outbounds))
+	for _, out := range outbounds {
+		if out.Type == TypeFailover {
+			ob, err := buildFailoverOutbound(out, builtByTag)
+			if err != nil {
+				return nil, fmt.Errorf("outbound %q: %w", out.Tag, err)
+			}
+			result = append(result, ob)
+			continue
+		}
+		result = append(result, builtByTag[out.Tag])
+	}
+
 	return result, nil
 }
 
