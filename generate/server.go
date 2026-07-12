@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/sagernet/sing-box/include"
 	"github.com/sagernet/sing-box/option"
@@ -24,8 +25,15 @@ import (
 //
 //nolint:revive // "generate.Generate" stutter is intentional for API clarity.
 type GenerateConfig struct {
-	FullReset bool
-	Orphan    bool
+	VPNLinkPeers []string
+	FullReset    bool
+	Orphan       bool
+}
+
+// WantsVPNLinks reports whether vpn:// import-link files should be generated
+// for server. Empty VPNLinkPeers (the default) opts out entirely.
+func (g GenerateConfig) WantsVPNLinks(server string) bool {
+	return slices.Contains(g.VPNLinkPeers, server)
 }
 
 // GenerateResult holds the generated server name and output files.
@@ -732,15 +740,31 @@ func generateServerWithState(
 		return GenerateResult{}, nil, fmt.Errorf("marshal config: %w", err)
 	}
 
-	files := make([]FileOutput, 0, 1+len(certFiles)+len(ruleSetFiles))
-	files = append(files, FileOutput{Path: "config.json", Content: configJSON})
-	files = append(files, certFiles...)
-	files = append(files, ruleSetFiles...)
+	vpnLinkFiles, err := buildVPNLinkFiles(genCfg, serverName, cfg, endpoints)
+	if err != nil {
+		return GenerateResult{}, nil, err
+	}
+	files := assembleOutputFiles(configJSON, certFiles, ruleSetFiles, vpnLinkFiles)
 
 	return GenerateResult{
 		Server: serverName,
 		Files:  files,
 	}, dirty, nil
+}
+
+// assembleOutputFiles gathers the generated config.json and all auxiliary file
+// outputs (certs, rule-sets, vpn links) into a single slice with the capacity
+// precomputed so no intermediate reallocation occurs.
+func assembleOutputFiles(
+	configJSON []byte,
+	certFiles, ruleSetFiles, vpnLinkFiles []FileOutput,
+) []FileOutput {
+	files := make([]FileOutput, 0, 1+len(certFiles)+len(ruleSetFiles)+len(vpnLinkFiles))
+	files = append(files, FileOutput{Path: "config.json", Content: configJSON})
+	files = append(files, certFiles...)
+	files = append(files, ruleSetFiles...)
+	files = append(files, vpnLinkFiles...)
+	return files
 }
 
 func provisionCrossServerUsers(cfg config.Config, state *ServerState, serverName string) map[string]bool {

@@ -43,6 +43,7 @@ func NewRootCommand() *cobra.Command {
 	var fullReset bool
 	var orphan bool
 	var dryRun bool
+	var vpnLinkPeers []string
 
 	generateCmd := &cobra.Command{
 		Use:   "generate",
@@ -57,7 +58,7 @@ func NewRootCommand() *cobra.Command {
 				}
 			}
 			return runGenerate(command.OutOrStdout(), proj, jpath, serverName,
-				generate.GenerateConfig{FullReset: fullReset, Orphan: orphan}, dryRun)
+				generate.GenerateConfig{FullReset: fullReset, Orphan: orphan, VPNLinkPeers: vpnLinkPeers}, dryRun)
 		},
 	}
 
@@ -67,6 +68,8 @@ func NewRootCommand() *cobra.Command {
 	generateCmd.Flags().BoolVar(&orphan, "orphan", false,
 		"remove orphaned users not referenced by any server")
 	generateCmd.Flags().BoolVar(&dryRun, "dry-run", false, "output JSON to stdout without writing files")
+	generateCmd.Flags().StringArrayVar(&vpnLinkPeers, "vpn-link", nil,
+		"generate AmneziaVPN vpn:// import links for the named peer server (repeatable)")
 	generateCmd.MarkFlagsMutuallyExclusive("full-reset", "orphan")
 
 	rootCmd.AddCommand(generateCmd)

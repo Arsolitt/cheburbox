@@ -152,6 +152,59 @@ func TestGenerateWritesConfig(t *testing.T) {
 	}
 }
 
+// TestGenerateVPNLinkWritesLinkFiles verifies the --vpn-link flag plumbing:
+// selecting awg-client writes its amneziawg outbound as a links/awg-out.vpn
+// file on disk, and the server (no amneziawg outbound) gets no links dir.
+func TestGenerateVPNLinkWritesLinkFiles(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	setupServer(t, root, "awg-server", `{
+		"version": 1,
+		"endpoint": "203.0.113.10",
+		"dns": {"servers": [{"type": "local", "tag": "dns-local"}], "final": "dns-local"},
+		"inbounds": [{"tag": "awg-in", "type": "amneziawg", "listen_port": 51820, "address": ["10.7.0.1/24"], "amnezia": {"protocol": "quic", "mtu": 1280}}],
+		"outbounds": [{"type": "direct", "tag": "direct"}],
+		"route": {"final": "direct", "auto_detect_interface": true}
+	}`)
+
+	setupServer(t, root, "awg-client", `{
+		"version": 1,
+		"endpoint": "198.51.100.5",
+		"dns": {"servers": [{"type": "local", "tag": "dns-local"}], "final": "dns-local"},
+		"inbounds": [{"tag": "tun-in", "type": "tun", "interface_name": "sing-box", "address": ["172.19.0.1/30"], "mtu": 1500, "auto_route": true, "stack": "system"}],
+		"outbounds": [
+			{"type": "direct", "tag": "direct"},
+			{"type": "amneziawg", "tag": "awg-out", "server": "awg-server", "inbound": "awg-in", "address": ["10.7.0.2/32"]}
+		],
+		"route": {"final": "awg-out", "auto_detect_interface": true}
+	}`)
+
+	var buf bytes.Buffer
+	err := runGenerate(&buf, root, "lib", "", generate.GenerateConfig{
+		VPNLinkPeers: []string{"awg-client"},
+	}, false)
+	if err != nil {
+		t.Fatalf("runGenerate: %v", err)
+	}
+
+	linkPath := filepath.Join(root, "awg-client", "links", "awg-out.vpn")
+	data, err := os.ReadFile(linkPath)
+	if err != nil {
+		t.Fatalf("read vpn link file: %v", err)
+	}
+	if !strings.HasPrefix(string(data), "vpn://") {
+		t.Errorf("vpn link file does not start with vpn://: %q", string(data))
+	}
+
+	// The server has an amneziawg inbound but no outbound, so it must not
+	// receive a links directory.
+	if _, err := os.Stat(filepath.Join(root, "awg-server", "links")); !os.IsNotExist(err) {
+		t.Errorf("awg-server/links must not exist, got err=%v", err)
+	}
+}
+
 func TestGenerateCredentialPersistence(t *testing.T) {
 	t.Parallel()
 

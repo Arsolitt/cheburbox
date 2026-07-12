@@ -51,6 +51,7 @@ The command inherits two persistent flags from the root command:
 | `--dry-run` | bool | `false` | Run the full in-memory generation but emit results as JSON to stdout instead of writing to disk. |
 | `--full-reset` | bool | `false` | Discard all persisted credentials and certificates. Regenerate every UUID, password, x25519 key pair, Reality short ID, and obfs password. Remove undeclared users. |
 | `--orphan` | bool | `false` | Remove persisted users that are no longer declared in `cheburbox.json` and not referenced by any other server's cross-server outbound. |
+| `--vpn-link` | string (repeatable) | `""` | Generate AmneziaVPN `vpn://` import links for the named peer server; repeat to select multiple peers. |
 
 > **Note:** `--full-reset` and `--orphan` are **mutually exclusive**. Setting both errors out at command parse time (`cobra.MarkFlagsMutuallyExclusive`).
 
@@ -64,6 +65,7 @@ For each server the generator writes:
 | `<project>/<server>/certs/<server_name>.crt` | `0644` | When the server has a `hysteria2` inbound. |
 | `<project>/<server>/certs/<server_name>.key` | `0644` | When the server has a `hysteria2` inbound. Holds the Ed25519 private key. |
 | `<project>/<server>/rule-set/<name>.srs` | `0644` | One per entry in `route.custom_rule_sets` that has a matching `<name>.json` source on disk. |
+| `<project>/<server>/links/<endpoint>.vpn` | `0644` | When the server is selected via `--vpn-link` and has `amneziawg` outbounds. One file per AWG client endpoint, holding an AmneziaVPN-app-importable `vpn://` link. |
 
 Output directories are created with mode `0750`. Hysteria2 certificates are self-signed Ed25519 with serial number `1`, valid for 365 days from generation. The CN and DNS SAN both equal `tls.server_name`. The certificate is regenerated when:
 
