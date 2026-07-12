@@ -3,7 +3,7 @@ module github.com/Arsolitt/cheburbox
 go 1.26.4
 
 require (
-	github.com/Arsolitt/amnezigo v0.0.0-20260712170404-e09484232f25
+	github.com/Arsolitt/amnezigo v0.0.0-20260712183536-a0e95852e71d
 	github.com/gofrs/uuid/v5 v5.4.0
 	github.com/google/go-jsonnet v0.22.0
 	github.com/sagernet/sing v0.8.11
