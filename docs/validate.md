@@ -23,6 +23,8 @@ All servers in the project are loaded into memory. Cheburbox builds the cross-se
 **Phase 2 — sing-box config check on each generated `config.json`.**
 For every server with a previously generated `<server>/config.json`, cheburbox parses it through sing-box's registry-aware decoder, then constructs and immediately closes a `box.New(opts)` instance. This mirrors the semantics of the `sing-box check` command. If a server has no generated `config.json` yet (i.e. you have not run `generate` for it), Phase 2 is skipped for that server only and a warning is emitted — Phase 1 still runs and the server is reported as PASS.
 
+> **Note:** The in-process check links **sing-box-extended** (the fork), the same runtime cheburbox builds against — not upstream sing-box. See [Installation](./installation.md#install-sing-box).
+
 Servers are reported in alphabetical order regardless of input order.
 
 ## Usage

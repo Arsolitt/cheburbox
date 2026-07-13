@@ -17,7 +17,7 @@
 
 ## Overview
 
-`cheburbox` is a declarative-config compiler for [sing-box](https://sing-box.sagernet.org/). It reads a multi-server project (one `cheburbox.json` or `.cheburbox.jsonnet` per server directory), resolves cross-server references (where one server's outbound peer is another server's user), generates a per-server `config.json` plus any required certificates and rule-set binaries, and validates the result.
+`cheburbox` is a declarative-config compiler for [sing-box-extended](https://github.com/shtorm-7/sing-box-extended) — a sing-box fork whose module path stays `github.com/sagernet/sing-box` (redirected via `replace` in `go.mod`). It reads a multi-server project (one `cheburbox.json` or `.cheburbox.jsonnet` per server directory), resolves cross-server references (where one server's outbound peer is another server's user), generates a per-server `config.json` plus any required certificates and rule-set binaries, and validates the result.
 
 Three properties drive the design:
 
@@ -25,7 +25,7 @@ Three properties drive the design:
 2. **Credential persistence.** UUIDs, passwords, x25519 keypairs, Reality short IDs, and obfs passwords are read back from the previous `config.json` on every run. Regenerating them blindly would invalidate already-distributed client credentials, so cheburbox preserves them by default.
 3. **Atomic two-pass writes.** All servers are processed entirely in memory first; disk writes happen only after every server succeeds. A failure on server N never leaves servers 1..N-1 partially written.
 
-The CLI does not shell out to `sing-box`. Validation links sing-box as a Go library and constructs `box.New(opts)` in-process. There is no external binary requirement at any step.
+The CLI does not shell out to `sing-box`. Validation links **sing-box-extended** (the fork) as a Go library and constructs `box.New(opts)` in-process. There is no external binary requirement at any step.
 
 ## Two layers of types
 

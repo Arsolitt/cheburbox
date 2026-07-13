@@ -1,6 +1,6 @@
 # Documentation
 
-> User documentation for cheburbox — a Go CLI that compiles declarative `cheburbox.json` schemas into validated sing-box configs across multiple servers.
+> User documentation for cheburbox — a Go CLI that compiles declarative `cheburbox.json` schemas into validated configs for [sing-box-extended](https://github.com/shtorm-7/sing-box-extended) across multiple servers.
 
 ## Table of Contents
 

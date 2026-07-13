@@ -25,6 +25,11 @@ self-signed certificates, and cross-server references — all of which must stay
 cross-server outbound references via a dependency graph, and validates the result with `sing-box`'s own checker
 linked as a Go library.
 
+> **Target runtime — [sing-box-extended](https://github.com/shtorm-7/sing-box-extended), not upstream sing-box.**
+> cheburbox builds and validates against this fork (linked via `replace` directives in `go.mod`; the module path
+> stays `github.com/sagernet/sing-box`). Generated configs use standard sing-box format, but fork-specific features
+> (e.g. **AmneziaWG**) require sing-box-extended at runtime. See [Requirements](#requirements).
+
 ---
 
 ## Highlights

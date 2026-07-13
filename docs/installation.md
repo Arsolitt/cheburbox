@@ -187,15 +187,15 @@ $ docker run --rm --user "$(id -u):$(id -g)" --volume "$PWD:/work" --workdir /wo
 
 **You don't need to.**
 
-`cheburbox` does not shell out to a separate `sing-box` binary at any point. The `cheburbox validate` command performs its sing-box correctness check **in-process**, by linking the upstream `github.com/sagernet/sing-box` Go module directly and instantiating a sing-box runtime against your config in memory.
+`cheburbox` does not shell out to a separate `sing-box` binary at any point. The `cheburbox validate` command performs its sing-box correctness check **in-process**, by linking the [sing-box-extended](https://github.com/shtorm-7/sing-box-extended) fork (module path `github.com/sagernet/sing-box`, redirected via `replace` in `go.mod`) and instantiating a sing-box runtime against your config in memory.
 
 What this means in practice:
 
 - No `sing-box` binary on `PATH`. No version-mismatch headaches between cheburbox's expectations and a system-installed sing-box.
-- The sing-box version is pinned by cheburbox's `go.mod` and updated together with cheburbox releases.
+- The sing-box-extended version is pinned by cheburbox's `go.mod` and updated together with cheburbox releases.
 - `go install` (or a source build) gives you everything `cheburbox validate` needs.
 
-If you want to run sing-box itself (for example, to actually serve traffic on your servers from a generated `config.json`), that is a separate, downstream concern. Upstream installation instructions live at <https://sing-box.sagernet.org/installation/>. cheburbox's job ends at producing a validated `config.json`; deploying that config to a sing-box runtime on your servers is up to you and is not handled by this CLI.
+If you want to actually serve traffic on your servers, deploy the generated `config.json` to a **sing-box-extended** runtime — the same fork cheburbox builds and validates against. Configs that stick to standard sing-box features also run on upstream sing-box, but fork-specific features (e.g. **AmneziaWG**) require sing-box-extended at runtime. cheburbox's job ends at producing a validated `config.json`; installing and running sing-box-extended on your servers is up to you. See <https://github.com/shtorm-7/sing-box-extended> for the fork.
 
 > **Tip:** See the [validate](./validate.md) page for what cheburbox's in-process check actually verifies — and what it doesn't.
 

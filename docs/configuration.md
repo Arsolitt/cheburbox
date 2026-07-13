@@ -2,6 +2,8 @@
 
 > Complete reference for the `cheburbox.json` schema. Every field, type, and constraint here is taken directly from the source — author any valid configuration from this page alone.
 
+> **Note:** Generated configs target [sing-box-extended](https://github.com/shtorm-7/sing-box-extended) — the fork cheburbox builds and validates against. The schema uses standard sing-box format; fork-specific features (e.g. **AmneziaWG**) are flagged where they appear. See [Architecture](./architecture.md).
+
 ## Table of contents
 
 - [File location](#file-location)
