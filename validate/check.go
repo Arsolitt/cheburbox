@@ -400,30 +400,16 @@ func checkFailoverOutbounds(server string, cfg config.Config) []error {
 	return errs
 }
 
-// amneziaProtocol* constants are the transport obfuscation protocols accepted
-// by AmneziaConfig.Protocol. amnezigo's protocol constants are unexported, so
-// these mirror them by value.
-const (
-	amneziaProtocolQUIC   = "quic"
-	amneziaProtocolDNS    = "dns"
-	amneziaProtocolDTLS   = "dtls"
-	amneziaProtocolSTUN   = "stun"
-	amneziaProtocolSIP    = "sip"
-	amneziaProtocolRTP    = "rtp"
-	amneziaProtocolRandom = "random"
-)
-
 // allowedAmneziaWGProtocols is the set of transport obfuscation protocols
-// accepted by AmneziaConfig.Protocol.
-var allowedAmneziaWGProtocols = map[string]bool{
-	amneziaProtocolQUIC:   true,
-	amneziaProtocolDNS:    true,
-	amneziaProtocolDTLS:   true,
-	amneziaProtocolSTUN:   true,
-	amneziaProtocolSIP:    true,
-	amneziaProtocolRTP:    true,
-	amneziaProtocolRandom: true,
-}
+// accepted by AmneziaConfig.Protocol. Built from amnezigo.ListProtocols() so
+// new protocols are accepted automatically after a `go get` bump.
+var allowedAmneziaWGProtocols = func() map[string]bool {
+	m := make(map[string]bool, len(amnezigo.ListProtocols()))
+	for _, p := range amnezigo.ListProtocols() {
+		m[p] = true
+	}
+	return m
+}()
 
 // allowedAmneziaWGPresets is the set of preset names accepted by
 // AmneziaConfig.Preset. Built from amnezigo.ListPresets() so new presets are
@@ -489,10 +475,11 @@ func checkAmneziaWGInbounds(server string, cfg config.Config) []error {
 
 		if in.Amnezia != nil && in.Amnezia.Protocol != "" && !allowedAmneziaWGProtocols[in.Amnezia.Protocol] {
 			errs = append(errs, fmt.Errorf(
-				"server %q: amneziawg inbound %q has invalid amnezia protocol %q (want one of quic, dns, dtls, stun, sip, rtp, random)",
+				"server %q: amneziawg inbound %q has invalid amnezia protocol %q (want one of %s)",
 				server,
 				in.Tag,
 				in.Amnezia.Protocol,
+				strings.Join(amnezigo.ListProtocols(), ", "),
 			))
 		}
 

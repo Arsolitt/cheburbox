@@ -15,24 +15,13 @@ import (
 	"github.com/Arsolitt/cheburbox/config"
 )
 
-// WireGuard raw handshake message sizes. AmneziaWG's junk-range and S-prefix
-// collision avoidance must exclude these. They mirror amnezigo's unexported
-// wgInitiationSize/wgResponseSize/wgCookieReplySize/wgTransportSize constants
-// (see amnezigo/validation.go); the public API does not expose them.
-const (
-	wgInitiationSize  = 148
-	wgResponseSize    = 92
-	wgCookieReplySize = 64
-	wgTransportSize   = 32
-)
-
 // wgInterfaceName is the in-process WireGuard interface name used by every
 // AmneziaWG endpoint. With System=false (the default) sing-box runs the
 // userspace WireGuard stack, so no real tun device is created at construction.
 const wgInterfaceName = "awg0"
 
 const (
-	defaultAmneziaProtocol = "quic"
+	defaultAmneziaProtocol = amnezigo.ProtocolQUIC
 	defaultAmneziaMTU      = 1280
 	// maxAmneziaMTU bounds the int->uint32 MTU conversion; real MTU values are
 	// far smaller, so anything larger is treated as the default.
@@ -42,17 +31,6 @@ const (
 // maxPeerIPScan caps the linear scan for a free peer tunnel address so that a
 // pathological /8 subnet cannot stall generation.
 const maxPeerIPScan = 1 << 16
-
-// paddedWGSizes returns the four AWG-padded handshake sizes given S1-S4. It
-// mirrors amnezigo's unexported paddedSizes helper.
-func paddedWGSizes(s1, s2, s3, s4 int) [4]int {
-	return [4]int{
-		s1 + wgInitiationSize,
-		s2 + wgResponseSize,
-		s3 + wgCookieReplySize,
-		s4 + wgTransportSize,
-	}
-}
 
 // toRangeUint32 maps an amnezigo HeaderRange to a sing-box badoption range.
 func toRangeUint32(h amnezigo.HeaderRange) *badoption.Range[uint32] {
@@ -113,7 +91,7 @@ func cloneWGAmnezia(a option.WireGuardAmnezia) option.WireGuardAmnezia {
 // literal s1/jc override.
 func generateAmneziaShared() (option.WireGuardAmnezia, error) {
 	s := amnezigo.GenerateSPrefixes()
-	forbidden := paddedWGSizes(s.S1, s.S2, s.S3, s.S4)
+	forbidden := amnezigo.PaddedSizes(s.S1, s.S2, s.S3, s.S4)
 	j, err := amnezigo.GenerateJunkParamsWithForbidden(forbidden)
 	if err != nil {
 		return option.WireGuardAmnezia{}, fmt.Errorf("generate amnezia junk params: %w", err)

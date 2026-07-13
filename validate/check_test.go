@@ -818,12 +818,12 @@ func TestCheckAmneziaWGInboundInvalidProtocol(t *testing.T) {
 }
 
 // TestCheckAmneziaWGInboundValidProtocols asserts every accepted transport
-// protocol produces zero errors. The list mirrors allowedAmneziaWGProtocols;
-// amnezigo's protocol constants are unexported, so the list is literal here too.
+// protocol produces zero errors. The list is read dynamically from
+// amnezigo.ListProtocols so the test stays in sync after future bumps.
 func TestCheckAmneziaWGInboundValidProtocols(t *testing.T) {
 	t.Parallel()
 
-	validProtocols := []string{"quic", "dns", "dtls", "stun", "sip", "rtp", "random"}
+	validProtocols := amnezigo.ListProtocols()
 
 	for _, proto := range validProtocols {
 		t.Run(proto, func(t *testing.T) {
