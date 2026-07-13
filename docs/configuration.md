@@ -16,6 +16,8 @@
   - [TUN](#tun)
   - [AmneziaWG](#amneziawg)
 - [Outbounds](#outbounds)
+  - [Fallback](#fallback)
+  - [Failover](#failover)
   - [AmneziaWG (cross-server)](#amneziawg-cross-server)
 - [Route](#route)
 - [DNS](#dns)
@@ -376,7 +378,7 @@ Padded handshake sizes (S1+148, S2+92, S3+64, S4+32) and junk ranges are pre-val
 
 ## Outbounds
 
-An outbound is a destination this server can route traffic to. Six types are supported:
+An outbound is a destination this server can route traffic to. Eight types are supported:
 
 | `type`      | Purpose                                                                        |
 | ----------- | ------------------------------------------------------------------------------ |
@@ -386,6 +388,8 @@ An outbound is a destination this server can route traffic to. Six types are sup
 | `amneziawg` | AmneziaWG client targeting another server's amneziawg inbound.                 |
 | `urltest`   | Group: pick the fastest member by latency probe.                               |
 | `selector`  | Group: manually select one of several members.                                 |
+| `fallback` | Group: priority-based switching with blacklist timeout. **Requires sing-box-extended.** |
+| `failover` | Group: automatic switching with sequential/cycle strategy. **Requires sing-box-extended.** |
 
 For `vless`, `hysteria2`, and `amneziawg`, cheburbox builds a cross-server reference using the `server` and `inbound` fields:
 
@@ -410,14 +414,63 @@ For `vless`, `hysteria2`, and `amneziawg`, cheburbox builds a cross-server refer
 | `endpoint`                    | `string`   | vless / hysteria2    | Overrides the target server's `endpoint` field.                                               |
 | `domain_resolver`             | `string`   | vless / hysteria2    | DNS server tag used to resolve the outbound's hostname.                                       |
 | `multiplex`                    | `*OutboundMultiplex` | vless                | Sing-box [multiplex](https://sing-box.sagernet.org/configuration/shared/multiplex/) (mux). See [Multiplex](#multiplex). |
-| `outbounds`                   | `[]string` | urltest / selector   | Member outbound tags. **Intra-server only** — cross-server tags are not supported in groups.  |
+| `outbounds`                   | `[]string` | urltest / selector / fallback / failover | Member outbound tags. **Intra-server only** — cross-server tags are not supported in groups.  |
 | `url`                         | `string`   | urltest              | Probe URL.                                                                                    |
 | `interval`                    | `string`   | urltest              | Go duration (e.g. `3m`).                                                                      |
 | `tolerance`                   | `uint16`   | urltest              |                                                                                               |
 | `idle_timeout`                | `string`   | urltest              | Go duration.                                                                                  |
 | `interrupt_exist_connections` | `bool`     | urltest              |                                                                                               |
+| `blacklist_timeout`           | `string`   | fallback             | Blacklist duration for failed outbounds (Go duration, e.g. `30s`, `5m`).                      |
+| `strategy`                    | `string`   | failover             | Dial strategy: `sequential` (default) or `cycle`.                                             |
+| `delay`                       | `string`   | failover             | Delay between failed dial attempts (Go duration, e.g. `2s`, `500ms`).                         |
 
 Generated VLESS cross-server outbounds use UTLS fingerprint `firefox` (share links use `chrome` — see [`./links.md`](./links.md)). For Hysteria2, when persistent state holds an obfs password, the generated outbound's obfs `type` is hardcoded to `salamander`.
+
+### Fallback
+
+Priority-based outbound switching with blacklist timeout. When the current outbound fails, it is blacklisted for the configured duration and the next outbound is tried. **Requires sing-box-extended.**
+
+Members are declared as normal outbounds at the top level and referenced by tag (intra-server only, like `urltest` and `selector`).
+
+| Field               | Type       | Required | Notes                                                                  |
+| ------------------- | ---------- | -------- | ---------------------------------------------------------------------- |
+| `tag`               | `string`   | Yes      | Outbound identifier.                                                  |
+| `type`              | `string`   | Yes      | Must be `"fallback"`.                                                  |
+| `outbounds`         | `[]string` | Yes      | Tags of outbounds to try in priority order.                            |
+| `blacklist_timeout` | `string`   | No       | Blacklist duration for failed outbounds (Go duration, e.g. `30s`, `5m`). |
+
+```json
+{
+  "type": "fallback",
+  "tag": "fallback-group",
+  "outbounds": ["vless-primary", "vless-backup"],
+  "blacklist_timeout": "30s"
+}
+```
+
+### Failover
+
+Automatic outbound switching with sequential or cycle strategies and configurable delay. Children are declared as normal outbounds at the top level and referenced by tag; the generator inlines the built outbound objects into the failover group. **Requires sing-box-extended.**
+
+A `failover` group must not reference another `failover` outbound — nested failover groups cannot be resolved.
+
+| Field       | Type       | Required | Notes                                                                           |
+| ----------- | ---------- | -------- | ------------------------------------------------------------------------------- |
+| `tag`       | `string`   | Yes      | Outbound identifier.                                                           |
+| `type`      | `string`   | Yes      | Must be `"failover"`.                                                           |
+| `outbounds` | `[]string` | Yes      | Tags of child outbounds to try. Must not reference another `failover` outbound. |
+| `strategy`  | `string`   | No       | `"sequential"` (default — try in order, advance on failure) or `"cycle"`.       |
+| `delay`     | `string`   | No       | Delay between failed dial attempts (Go duration, e.g. `2s`, `500ms`).           |
+
+```json
+{
+  "type": "failover",
+  "tag": "failover-out",
+  "outbounds": ["primary", "backup"],
+  "strategy": "cycle",
+  "delay": "2s"
+}
+```
 
 ### AmneziaWG (cross-server)
 
@@ -719,7 +772,7 @@ Only `protocol`, `preset`, and `mtu` are user-facing. The actual obfuscation par
 
 | Field                         | Type       | Used by              | Description                                                                                     |
 | ----------------------------- | ---------- | -------------------- | ----------------------------------------------------------------------------------------------- |
-| `type`                        | `string`   | all                  | One of `direct`, `vless`, `hysteria2`, `amneziawg`, `urltest`, `selector`.                      |
+| `type`                        | `string`   | all                  | One of `direct`, `vless`, `hysteria2`, `amneziawg`, `urltest`, `selector`, `fallback`, `failover`. |
 | `tag`                         | `string`   | all (Required)       |                                                                                                 |
 | `server`                      | `string`   | vless / hysteria2 / amneziawg | Target server directory name.                                                            |
 | `inbound`                     | `string`   | vless / hysteria2 / amneziawg | Target inbound `tag` on the target server.                                               |
@@ -729,12 +782,15 @@ Only `protocol`, `preset`, and `mtu` are user-facing. The actual obfuscation par
 | `domain_resolver`             | `string`   | vless / hysteria2    | DNS server tag for resolving the outbound hostname.                                             |
 | `address`                     | `[]string` | amneziawg            | Exactly one CIDR: this client's tunnel IP within the target server's subnet.                   |
 | `mtu`                         | `int`      | amneziawg            | WireGuard interface MTU. Default `1280`.                                                        |
-| `outbounds`                   | `[]string` | urltest / selector   | Intra-server tags only.                                                                         |
+| `outbounds`                   | `[]string` | urltest / selector / fallback / failover | Intra-server tags only.                                                                         |
 | `url`                         | `string`   | urltest              | Probe URL.                                                                                      |
 | `interval`                    | `string`   | urltest              | Go duration (e.g. `3m`).                                                                        |
 | `tolerance`                   | `uint16`   | urltest              |                                                                                                 |
 | `idle_timeout`                | `string`   | urltest              | Go duration.                                                                                    |
 | `interrupt_exist_connections` | `bool`     | urltest              |                                                                                                 |
+| `blacklist_timeout`           | `string`   | fallback             | Blacklist duration for failed outbounds (Go duration, e.g. `30s`, `5m`).                       |
+| `strategy`                    | `string`   | failover             | Dial strategy: `sequential` (default) or `cycle`.                                              |
+| `delay`                       | `string`   | failover             | Delay between failed dial attempts (Go duration, e.g. `2s`, `500ms`).                          |
 
 ### `Route`
 
