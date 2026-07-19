@@ -18,9 +18,10 @@ Entry point: `cmd/cheburbox/`. User-facing schema: `config/`. Generation logic: 
 
 ## Commands
 
-- Build: `go build --output build/cheburbox ./cmd/cheburbox/`
-- All tests: `go test ./...`
-- Single test: `go test --run TestFunctionName ./path/to/package`
+- Build: `make build` (passes protocol build tags; a bare `go build` skips WireGuard/AmneziaWG/Hysteria2 validation — see the `Makefile` header)
+- Install to `$GOBIN`: `make install`
+- All tests: `make test` (same tags as the build, so `box.New` validation runs instead of skipping)
+- Single test: `go test -tags "$$(make print-tags)" --run TestFunctionName ./path/to/package`
 - Lint + auto-fix (canonical, run this FIRST before any manual fix): `golangci-lint run --fix`
 - Full pre-handoff check: use the `/verify` skill (runs lint-fix + full test suite).
 

@@ -56,18 +56,23 @@ linked as a Go library.
 
 ## Quick install
 
-```shell
-$ go install github.com/Arsolitt/cheburbox/cmd/cheburbox@latest
-```
-
-Verify the binary is on your `PATH`:
+Clone and build (Go 1.26.4+). Use `make build` — it passes the protocol build tags that `cheburbox validate` needs for WireGuard / AmneziaWG / Hysteria2:
 
 ```shell
-$ cheburbox --help
+$ git clone https://github.com/Arsolitt/cheburbox.git
+$ cd cheburbox
+$ make build
 ```
 
-> **Tip:** To build from a local clone instead, run `go build --output build/cheburbox ./cmd/cheburbox/` from
-> the repository root.
+Verify the binary runs:
+
+```shell
+$ ./build/cheburbox --help
+```
+
+> **No clone?** Run the container image directly — `docker run --rm ghcr.io/arsolitt/cheburbox:latest --help`. See [Installation](./docs/installation.md) for all options.
+>
+> **Why not `go install`?** The `go.mod` carries `replace` directives (sing-box → the [sing-box-extended](https://github.com/shtorm-7/sing-box-extended) fork) that Go rejects for `go install pkg@version`, so that command fails. A bare `go build` without `-tags` builds, but silently skips validation for tagged protocols — `make build` is the supported path.
 
 ---
 
@@ -159,7 +164,7 @@ You are an expert proficient in sing-box proxy configuration and cheburbox proje
 
 ## Requirements
 
-- **Go 1.26.4 or newer** to build or `go install`.
+- **Go 1.26.4 or newer** to build (declared in `go.mod`).
 - **No external `sing-box` binary required** — `cheburbox validate` links sing-box as a Go library and runs the check
   in-process.
 

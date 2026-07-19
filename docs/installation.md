@@ -5,7 +5,6 @@
 ## Table of Contents
 
 - [Requirements](#requirements)
-- [Install via go install](#install-via-go-install)
 - [Build from source](#build-from-source)
 - [Container image (Docker)](#container-image-docker)
 - [Install sing-box](#install-sing-box)
@@ -31,33 +30,9 @@ The project is pure Go and uses no platform-specific syscalls outside what the u
 
 ---
 
-## Install via go install
-
-The shortest path. With a working Go toolchain, run:
-
-```shell
-$ go install github.com/Arsolitt/cheburbox/cmd/cheburbox@latest
-```
-
-This downloads the module, builds it, and drops the resulting `cheburbox` binary into `$GOBIN` (which is `$GOPATH/bin` by default, typically `~/go/bin`).
-
-### Make sure it's on your PATH
-
-If `~/go/bin` (or your `$GOBIN`) isn't on `PATH`, add it. Then verify:
-
-```shell
-$ cheburbox --help
-```
-
-If you get a "command not found" error, your shell hasn't picked up `$GOBIN`. The fix is environment-specific (edit your shell rc file to prepend `$(go env GOPATH)/bin` to `PATH`), not a cheburbox concern.
-
-> **Tip:** `@latest` always pulls the most recent tagged release. Pin to a specific tag (e.g. `@v0.5.0`) when you want reproducible installs in scripts or CI.
-
----
-
 ## Build from source
 
-Use this path when you want to hack on cheburbox itself, run tests, or build from a non-released branch.
+The supported install path. Clone and build with `make`:
 
 ### 1. Clone the repository
 
@@ -68,21 +43,30 @@ $ cd cheburbox
 
 ### 2. Build the binary
 
-The project uses long-form flags by convention:
-
 ```shell
-$ go build --output build/cheburbox ./cmd/cheburbox/
+$ make build
 ```
 
-The resulting binary lands at `build/cheburbox`.
+The binary lands at `build/cheburbox`. To install it on your `PATH` (`$GOBIN` / `$GOPATH/bin`) instead:
 
-> **Note:** The `build/` directory is gitignored. It's the project's local sandbox for binaries and scratch `cheburbox.json` fixtures used in manual testing — anything you put there stays out of version control.
+```shell
+$ make install
+$ cheburbox --help
+```
+
+> **Why `make`, not `go build`?** `make build` passes the sing-box protocol build tags (`with_wireguard`, `with_utls`, `with_quic`, … — see the `Makefile` header for the full set) that `cheburbox validate` needs to validate WireGuard / AmneziaWG / Hysteria2 configs in-process. A bare `go build ./cmd/cheburbox/` without those tags builds, but silently fails validation for tagged protocols with `"is not included in this build"`.
+>
+> `go install github.com/Arsolitt/cheburbox/cmd/cheburbox@latest` does not work at all: the `go.mod` carries `replace` directives (redirecting `sing-box` to the [sing-box-extended](https://github.com/shtorm-7/sing-box-extended) fork) that Go rejects for `go install pkg@version`.
+
+> **Note:** The `build/` directory is gitignored — it's the project's local sandbox for binaries and scratch `cheburbox.json` fixtures used in manual testing.
 
 ### 3. (Optional) run the tests
 
 ```shell
-$ go test ./...
+$ make test
 ```
+
+`make test` uses the same tags as the build, so the in-process `box.New` validation path (AmneziaWG, Hysteria2, …) is exercised rather than skipped.
 
 If you plan to send a patch upstream, also run the linter:
 
@@ -193,7 +177,7 @@ What this means in practice:
 
 - No `sing-box` binary on `PATH`. No version-mismatch headaches between cheburbox's expectations and a system-installed sing-box.
 - The sing-box-extended version is pinned by cheburbox's `go.mod` and updated together with cheburbox releases.
-- `go install` (or a source build) gives you everything `cheburbox validate` needs.
+- A source build (`make build` / `make install`) gives you everything `cheburbox validate` needs.
 
 If you want to actually serve traffic on your servers, deploy the generated `config.json` to a **sing-box-extended** runtime — the same fork cheburbox builds and validates against. Configs that stick to standard sing-box features also run on upstream sing-box, but fork-specific features (e.g. **AmneziaWG**) require sing-box-extended at runtime. cheburbox's job ends at producing a validated `config.json`; installing and running sing-box-extended on your servers is up to you. See <https://github.com/shtorm-7/sing-box-extended> for the fork.
 

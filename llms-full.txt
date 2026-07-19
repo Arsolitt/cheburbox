@@ -154,52 +154,35 @@ url: /installation
 ---
 # Installation
 
-Cheburbox is a Go CLI tool. You can install it by building from source or using `go install`.
+Cheburbox is a Go CLI tool. Install it by building from source.
 
 ## Prerequisites
 
-- **Go 1.26.1 or later** — cheburbox requires Go 1.26.1 as specified in its `go.mod` file.
-- **Git** — for cloning the repository if building from source.
-
-## Install with go install
-
-The simplest way to install cheburbox is via `go install`. This builds the binary from the source repository and places it in your `GOPATH/bin` directory (typically `$HOME/go/bin`).
-
-```shell
-go install github.com/Arsolitt/cheburbox/cmd/cheburbox@latest
-```
-
-Make sure `$GOPATH/bin` (or `$HOME/go/bin`) is in your `PATH` so the `cheburbox` command is available:
-
-```shell
-export PATH="$PATH:$(go env GOPATH)/bin"
-```
-
-To install a specific version, replace `@latest` with a tag or commit hash:
-
-```shell
-go install github.com/Arsolitt/cheburbox/cmd/cheburbox@v1.0.0
-```
-
-::: tip
-Using `@latest` always installs the most recent commit on the default branch. Pin a specific tag for reproducible builds.
-:::
+- **Go 1.26.4 or later** — cheburbox requires Go 1.26.4 as specified in its `go.mod` file.
+- **Git** — for cloning the repository.
+- **Make** — the `Makefile` passes the protocol build tags that a bare `go build` does not.
 
 ## Build from Source
 
-Clone the repository and build locally:
+Clone the repository and build with `make`:
 
 ```shell
 git clone https://github.com/Arsolitt/cheburbox.git
 cd cheburbox
-go build -o build/cheburbox ./cmd/cheburbox/
+make build
 ```
 
-The resulting binary is placed at `build/cheburbox`. Copy it anywhere in your `PATH`:
+The resulting binary is placed at `build/cheburbox`. To install it on your `PATH` instead:
 
 ```shell
-cp build/cheburbox /usr/local/bin/
+make install
 ```
+
+::: warning
+Use `make build`, not a bare `go build`. The `Makefile` passes the sing-box protocol build tags (`with_wireguard`, `with_utls`, `with_quic`, …) that `cheburbox validate` needs to validate WireGuard / AmneziaWG / Hysteria2 configs in-process. A bare `go build ./cmd/cheburbox/` without those tags builds, but silently fails validation for tagged protocols with `"is not included in this build"`.
+
+`go install github.com/Arsolitt/cheburbox/cmd/cheburbox@latest` does not work at all: the `go.mod` carries `replace` directives (redirecting `sing-box` to the [sing-box-extended](https://github.com/shtorm-7/sing-box-extended) fork) that Go rejects for `go install pkg@version`.
+:::
 
 ## Verify Installation
 
@@ -222,7 +205,7 @@ Cheburbox has the following direct dependencies:
 | `github.com/sagernet/sing-box` | Sing-box core library for option structs and rule-set compilation. |
 | `github.com/gofrs/uuid/v5` | UUID v5 generation for user credentials. |
 
-All dependencies are fetched automatically by the Go toolchain when you run `go build` or `go install`. No manual dependency management is needed.
+All dependencies are fetched automatically by the Go toolchain when you run `make build`. No manual dependency management is needed.
 
 ## Linting (Development)
 
@@ -245,19 +228,19 @@ The linter configuration is in `.golangci.yaml` at the project root and enforces
 To run the full test suite:
 
 ```shell
-go test ./...
+make test
 ```
 
 To run a specific test:
 
 ```shell
-go test -run TestFunctionName ./path/to/package
+go test -tags "$(make print-tags)" --run TestFunctionName ./path/to/package
 ```
 
 To run tests with verbose output:
 
 ```shell
-go test -v -run TestFunctionName ./path/to/package
+go test -tags "$(make print-tags)" -v --run TestFunctionName ./path/to/package
 ```
 
 ## Next Steps
