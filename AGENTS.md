@@ -2,12 +2,12 @@
 
 ## Build/Test Commands
 
-- Build: `go build -o build/cheburbox ./cmd/cheburbox/`
-- Install: `go install github.com/Arsolitt/cheburbox/cmd/cheburbox@latest`
-- Run all tests: `go test ./...`
-- Run single test: `go test --run TestFunctionName ./path/to/package`
-- Run tests with coverage: `go test --cover ./...`
-- Run tests verbosely: `go test -v --run TestFunctionName ./path/to/package`
+- Build: `make build` — builds with the sing-box protocol build tags required for in-process validation (`box.New`). Without them, configs using WireGuard/AmneziaWG/Hysteria2 fail validation with "is not included in this build". See the `Makefile` header for the exact tag set and rationale.
+- Install: `make install` (note: `go install ...@latest` from the proxy builds WITHOUT tags and cannot validate tagged protocols)
+- Run all tests: `make test`
+- Run single test: `go test -tags "$$(make print-tags)" --run TestFunctionName ./path/to/package`
+- Run tests with coverage: `go test -tags "$$(make print-tags)" --cover ./...`
+- Run tests verbosely: `go test -tags "$$(make print-tags)" -v --run TestFunctionName ./path/to/package`
 - Lint code: `golangci-lint run`
 - Lint and auto-fix: `golangci-lint run --fix`
 - Always run `golangci-lint run --fix` first to auto-resolve issues before fixing remaining ones manually

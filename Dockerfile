@@ -12,6 +12,11 @@ FROM ${GO_IMAGE} AS builder
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
+# Build tags required for in-process validation (box.New) of generated configs.
+# Must mirror the Makefile TAGS default exactly; override with --build-arg TAGS=.
+# See the Makefile header for why each tag from the fork's DEFAULT_BUILD_TAGS_OTHERS
+# is included or excluded.
+ARG TAGS=with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_masque,with_mtproxy,with_openvpn,with_trusttunnel,with_sudoku,with_snell
 
 WORKDIR /src
 
@@ -22,7 +27,7 @@ RUN go mod download
 COPY . .
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w" -o /out/cheburbox ./cmd/cheburbox/
+    go build -trimpath -tags="${TAGS}" -ldflags="-s -w" -o /out/cheburbox ./cmd/cheburbox/
 
 # Runtime stage: distroless static image, non-root uid 65532, no shell.
 FROM ${RUNTIME_IMAGE}
