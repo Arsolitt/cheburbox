@@ -1,6 +1,10 @@
 package generate
 
 import (
+	"bytes"
+	"compress/zlib"
+	"encoding/base64"
+	"encoding/json"
 	"net/netip"
 	"strings"
 	"testing"
@@ -18,6 +22,34 @@ func filePaths(files []FileOutput) []string {
 		paths[i] = f.Path
 	}
 	return paths
+}
+
+// qCompressHeaderSize mirrors amnezigo's qCompress header: a big-endian uint32
+// holding the uncompressed length, written before the zlib-compressed payload.
+const qCompressHeaderSize = 4
+
+// decodeVPNDescription extracts the envelope "description" field from a vpn://
+// link by reversing amnezigo's encode path (vpn:// + base64url of
+// qCompress(zlib(envelopeJSON))). It exists only for tests that assert the
+// description is threaded into the generated link.
+func decodeVPNDescription(t *testing.T, link string) string {
+	t.Helper()
+	compressed, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(link, "vpn://"))
+	if err != nil {
+		t.Fatalf("base64url decode: %v", err)
+	}
+	zr, err := zlib.NewReader(bytes.NewReader(compressed[qCompressHeaderSize:]))
+	if err != nil {
+		t.Fatalf("zlib reader: %v", err)
+	}
+	defer zr.Close()
+	var env struct {
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(zr).Decode(&env); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	return env.Description
 }
 
 // setupAWGCrossServerFixture provisions a two-server project: awg-server hosts
@@ -108,6 +140,9 @@ func TestAWGVPNLinkFiles_GeneratesLinkForClient(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(link.Content), "vpn://") {
 		t.Errorf("link content does not start with vpn://: %q", string(link.Content))
+	}
+	if got := decodeVPNDescription(t, string(link.Content)); got != "awg-out" {
+		t.Errorf("link description = %q, want %q", got, "awg-out")
 	}
 
 	// The server has an amneziawg inbound, not an outbound, so it must not
@@ -211,6 +246,29 @@ func TestAWGClientINI_PreservesFields(t *testing.T) {
 	for _, want := range wantSubstrings {
 		if !strings.Contains(text, want) {
 			t.Errorf("INI missing %q\n--- INI ---\n%s", want, text)
+		}
+	}
+}
+
+// TestVPNDisplayName covers the tag → app display name derivation. The
+// conventional tag shape is <server>-awg-<preset>-<protocol>; the "-awg-"
+// token collapses to a single dash. Tags missing the segment are unchanged.
+// The empty case is documented: vpnDisplayName("") returns "", which leaves
+// envelope.description unset (amnezigo tags it omitempty) and lets AmneziaVPN
+// fall back to hostName.
+func TestVPNDisplayName(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ in, want string }{
+		{"al-p-1-awg-stealth-dns", "al-p-1-stealth-dns"},
+		{"am-p-1-awg-stealth-quic", "am-p-1-stealth-quic"},
+		{"", ""},
+		{"awg-out", "awg-out"},
+		{"awg-foo", "awg-foo"},
+		{"x-awg", "x-awg"},
+	}
+	for _, c := range cases {
+		if got := vpnDisplayName(c.in); got != c.want {
+			t.Errorf("vpnDisplayName(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

@@ -69,7 +69,8 @@ func awgVPNLinkFiles(cfg config.Config, endpoints []option.Endpoint) ([]FileOutp
 
 		peer := wg.Peers[0]
 		peerEndpoint := net.JoinHostPort(peer.Address, strconv.Itoa(int(peer.Port)))
-		link := amnezigo.EncodeVPNLink(ini, peerEndpoint, int(peer.Port), dns)
+		description := vpnDisplayName(out.Tag)
+		link := amnezigo.EncodeVPNLink(ini, peerEndpoint, int(peer.Port), dns, description)
 
 		files = append(files, FileOutput{
 			Path:    filepath.Join("links", out.Tag+".vpn"),
@@ -89,6 +90,17 @@ func endpointByTag(endpoints []option.Endpoint, tag string) *option.Endpoint {
 		}
 	}
 	return nil
+}
+
+// vpnDisplayName derives the AmneziaVPN app display name for an amneziawg
+// outbound's vpn:// link from the outbound tag. The conventional tag shape is
+// <server>-awg-<preset>-<protocol> (e.g. al-p-1-awg-stealth-dns); the "awg"
+// token is collapsed so the app shows al-p-1-stealth-dns. Tags without the
+// "-awg-" segment are returned unchanged. An empty tag yields an empty name,
+// which leaves envelope.description unset (omitempty) and lets AmneziaVPN fall
+// back to hostName.
+func vpnDisplayName(tag string) string {
+	return strings.Replace(tag, "-awg-", "-", 1)
 }
 
 // awgClientINI renders a sing-box wireguard client endpoint as an AWG client
