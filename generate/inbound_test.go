@@ -607,3 +607,67 @@ func TestBuildVLESSInboundMultiplex(t *testing.T) {
 		t.Errorf("Multiplex.Brutal.DownMbps = %d, want 200", opts.Multiplex.Brutal.DownMbps)
 	}
 }
+
+func TestBuildSocksInbound(t *testing.T) {
+	t.Parallel()
+
+	in := config.Inbound{
+		Tag:        "socks-in",
+		Type:       "socks",
+		ListenPort: 1080,
+		Listen:     "::",
+		Users:      []config.InboundUser{{Name: "ext-client"}},
+	}
+
+	creds := InboundCredentials{
+		Users: map[string]UserCreds{
+			"ext-client": {Password: "pw-ext"},
+		},
+	}
+
+	inbound, err := BuildInbound(in, creds)
+	if err != nil {
+		t.Fatalf("BuildInbound: %v", err)
+	}
+
+	if inbound.Tag != "socks-in" {
+		t.Errorf("Tag = %q, want socks-in", inbound.Tag)
+	}
+	if inbound.Type != "socks" {
+		t.Errorf("Type = %q, want socks", inbound.Type)
+	}
+
+	opts, ok := inbound.Options.(*socksInboundOptions)
+	if !ok {
+		t.Fatalf("Options type = %T, want *socksInboundOptions", inbound.Options)
+	}
+	if opts.ListenPort != 1080 {
+		t.Errorf("ListenPort = %d, want 1080", opts.ListenPort)
+	}
+	if len(opts.Users) != 1 {
+		t.Fatalf("Users count = %d, want 1", len(opts.Users))
+	}
+	if opts.Users[0].Username != "ext-client" {
+		t.Errorf("Users[0].Username = %q, want ext-client", opts.Users[0].Username)
+	}
+	if opts.Users[0].Password != "pw-ext" {
+		t.Errorf("Users[0].Password = %q, want pw-ext", opts.Users[0].Password)
+	}
+}
+
+func TestBuildSocksInboundMissingUserCreds(t *testing.T) {
+	t.Parallel()
+
+	in := config.Inbound{
+		Tag:   "socks-in",
+		Type:  "socks",
+		Users: []config.InboundUser{{Name: "ext-client"}},
+	}
+
+	_, err := BuildInbound(in, InboundCredentials{
+		Users: map[string]UserCreds{},
+	})
+	if err == nil {
+		t.Fatal("expected error for missing user credentials")
+	}
+}

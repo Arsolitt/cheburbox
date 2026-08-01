@@ -108,6 +108,37 @@ func TestLoadPersistedCredentialsHysteria2(t *testing.T) {
 	}
 }
 
+func TestLoadPersistedCredentialsSocks(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configJSON := filepath.Join(dir, "config.json")
+	content := `{
+		"inbounds": [{
+			"type": "socks",
+			"tag": "socks-in",
+			"listen_port": 1080,
+			"users": [
+				{"Username": "ext-client", "Password": "pw-ext"}
+			]
+		}]
+	}`
+	if err := os.WriteFile(configJSON, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	creds, err := LoadPersistedCredentials(configJSON)
+	if err != nil {
+		t.Fatalf("load credentials: %v", err)
+	}
+
+	// auth.User has no JSON tags, so sing-box marshals Username/Password
+	// capitalised; Go's case-insensitive decode still maps them to the struct.
+	if creds.InboundUsers["socks-in"]["ext-client"].Password != "pw-ext" {
+		t.Errorf("ext-client password = %q, want %q", creds.InboundUsers["socks-in"]["ext-client"].Password, "pw-ext")
+	}
+}
+
 func TestLoadPersistedCredentialsInvalidJSON(t *testing.T) {
 	t.Parallel()
 

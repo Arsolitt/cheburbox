@@ -9,6 +9,8 @@ const (
 	TypeHysteria2 = "hysteria2"
 	// TypeTun is the tun inbound protocol type.
 	TypeTun = "tun"
+	// TypeSOCKS is the SOCKS5 inbound protocol type (username/password auth).
+	TypeSOCKS = "socks"
 	// TypeAmneziaWG is the AmneziaWG inbound and cross-server outbound protocol type.
 	TypeAmneziaWG = "amneziawg"
 	// TypeDirect is the direct outbound protocol type.

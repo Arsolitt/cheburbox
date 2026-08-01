@@ -197,6 +197,12 @@ func generateUserCreds(inboundType string) (UserCreds, error) {
 			return UserCreds{}, fmt.Errorf("generate hysteria2 password: %w", err)
 		}
 		return UserCreds{Password: pw}, nil
+	case TypeSOCKS:
+		pw, err := GeneratePassword()
+		if err != nil {
+			return UserCreds{}, fmt.Errorf("generate socks password: %w", err)
+		}
+		return UserCreds{Password: pw}, nil
 	default:
 		return UserCreds{}, nil
 	}

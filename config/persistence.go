@@ -99,6 +99,8 @@ func ExtractCredentials(opts *option.Options) PersistedCredentials {
 			extractVLESSCredentials(inbound.Tag, o, &creds)
 		case *option.Hysteria2InboundOptions:
 			extractHysteria2Credentials(inbound.Tag, o, &creds)
+		case *option.SocksInboundOptions:
+			extractSocksCredentials(inbound.Tag, o, &creds)
 		}
 	}
 
@@ -142,6 +144,14 @@ func extractHysteria2Credentials(tag string, opts *option.Hysteria2InboundOption
 	if opts.Obfs != nil && opts.Obfs.Password != "" {
 		creds.ObfsPasswords[tag] = opts.Obfs.Password
 	}
+}
+
+func extractSocksCredentials(tag string, opts *option.SocksInboundOptions, creds *PersistedCredentials) {
+	users := make(map[string]UserCredentials, len(opts.Users))
+	for _, u := range opts.Users {
+		users[u.Username] = UserCredentials{Password: u.Password}
+	}
+	creds.InboundUsers[tag] = users
 }
 
 func extractWireGuardCredentials(tag string, opts *option.WireGuardEndpointOptions, creds *PersistedCredentials) {

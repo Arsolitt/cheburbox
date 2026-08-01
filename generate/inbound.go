@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/sagernet/sing-box/option"
+	"github.com/sagernet/sing/common/auth"
 	"github.com/sagernet/sing/common/json/badoption"
 
 	"github.com/Arsolitt/cheburbox/config"
@@ -44,6 +45,9 @@ type hysteria2InboundOptions = option.Hysteria2InboundOptions
 // tunInboundOptions mirrors option.TunInboundOptions for type assertions in tests.
 type tunInboundOptions = option.TunInboundOptions
 
+// socksInboundOptions mirrors option.SocksInboundOptions for type assertions in tests.
+type socksInboundOptions = option.SocksInboundOptions
+
 const (
 	masqueradeTypeProxy = "proxy"
 )
@@ -57,6 +61,8 @@ func BuildInbound(in config.Inbound, creds InboundCredentials) (option.Inbound, 
 		return buildHysteria2Inbound(in, creds)
 	case TypeTun:
 		return buildTunInbound(in)
+	case TypeSOCKS:
+		return buildSocksInbound(in, creds)
 	default:
 		return option.Inbound{}, fmt.Errorf("unknown inbound type: %s", in.Type)
 	}
@@ -260,6 +266,57 @@ func buildHysteria2Masquerade(masq *config.MasqueradeConfig) (*option.Hysteria2M
 	}
 
 	return m, nil
+}
+
+func buildSocksInbound(in config.Inbound, creds InboundCredentials) (option.Inbound, error) {
+	users := buildSocksUsers(creds)
+	if len(users) == 0 && len(in.Users) > 0 {
+		return option.Inbound{}, errors.New("missing credentials for declared users")
+	}
+
+	opts := option.SocksInboundOptions{
+		ListenOptions: option.ListenOptions{
+			Listen:     parseListenAddr(in.Listen),
+			ListenPort: intToUint16(in.ListenPort),
+		},
+		Users: users,
+	}
+
+	return option.Inbound{
+		Type:    in.Type,
+		Tag:     in.Tag,
+		Options: &opts,
+	}, nil
+}
+
+// buildSocksUsers converts resolved credentials into sing-box auth.User entries,
+// sorted by username for deterministic output. The cheburbox InboundUser.Name
+// becomes the SOCKS5 username; the resolved password (UserCreds.Password) is
+// generated on first run and persisted across regenerations.
+func buildSocksUsers(creds InboundCredentials) []auth.User {
+	if len(creds.Users) == 0 {
+		return nil
+	}
+
+	users := make([]auth.User, 0, len(creds.Users))
+	for name, uc := range creds.Users {
+		users = append(users, auth.User{
+			Username: name,
+			Password: uc.Password,
+		})
+	}
+
+	slices.SortFunc(users, func(a, b auth.User) int {
+		if a.Username < b.Username {
+			return -1
+		}
+		if a.Username > b.Username {
+			return 1
+		}
+		return 0
+	})
+
+	return users
 }
 
 func buildTunInbound(in config.Inbound) (option.Inbound, error) {
