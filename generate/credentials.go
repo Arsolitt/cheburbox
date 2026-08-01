@@ -25,7 +25,8 @@ func GenerateUUID() (string, error) {
 	return id.String(), nil
 }
 
-// GeneratePassword returns a base64-encoded 24-byte random password.
+// GeneratePassword returns a URL-safe base64-encoded 24-byte random password
+// (RawURLEncoding: [A-Za-z0-9_-], no padding) — safe for URIs and config values.
 //
 //nolint:revive // "generate.Generate" stutter is intentional for API clarity.
 func GeneratePassword() (string, error) {
@@ -33,7 +34,7 @@ func GeneratePassword() (string, error) {
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generate password: %w", err)
 	}
-	return base64.StdEncoding.EncodeToString(b), nil
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // GenerateX25519KeyPair generates an X25519 key pair and returns

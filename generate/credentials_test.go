@@ -47,7 +47,7 @@ func TestGeneratePassword(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GeneratePassword: %v", err)
 	}
-	decoded, err := base64.StdEncoding.DecodeString(pw)
+	decoded, err := base64.RawURLEncoding.DecodeString(pw)
 	if err != nil {
 		t.Fatalf("base64 decode: %v", err)
 	}
