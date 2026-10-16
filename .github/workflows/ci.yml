@@ -27,7 +27,23 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
+          # Replaced by the explicit Cache Go state step below: the built-in
+          # cache shares one key per run and races between jobs.
+          cache: false
+      - name: Cache Go state
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          # The run id forces a fresh save every run, so unchanged dependencies
+          # stay warm for the next run; restores fall back through this job's
+          # earlier entries, then any entry for the platform.
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
+            go-${{ runner.os }}-${{ runner.arch }}-
       - uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
@@ -40,7 +56,23 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
+          # Replaced by the explicit Cache Go state step below: the built-in
+          # cache shares one key per run and races between jobs.
+          cache: false
+      - name: Cache Go state
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          # The run id forces a fresh save every run, so unchanged dependencies
+          # stay warm for the next run; restores fall back through this job's
+          # earlier entries, then any entry for the platform.
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
+            go-${{ runner.os }}-${{ runner.arch }}-
       # The protocol build tags are required: without them the tagged-protocol
       # validation tests self-skip.
       - run: go test -race -tags "$(make -s print-tags)" ./...
@@ -66,7 +98,23 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
+          # Replaced by the explicit Cache Go state step below: the built-in
+          # cache shares one key per run and races between jobs.
+          cache: false
+      - name: Cache Go state
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          # The run id forces a fresh save every run, so unchanged dependencies
+          # stay warm for the next run; restores fall back through this job's
+          # earlier entries, then any entry for the platform.
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
+            go-${{ runner.os }}-${{ runner.arch }}-
       - name: Cross-compile the release matrix
         run: |
           set -eu
@@ -102,7 +150,23 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
+          # Replaced by the explicit Cache Go state step below: the built-in
+          # cache shares one key per run and races between jobs.
+          cache: false
+      - name: Cache Go state
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          # The run id forces a fresh save every run, so unchanged dependencies
+          # stay warm for the next run; restores fall back through this job's
+          # earlier entries, then any entry for the platform.
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
+            go-${{ runner.os }}-${{ runner.arch }}-
       - run: go mod download
       - run: go run ./hack/noticegen
       - name: NOTICE and licenses/ must be up to date
