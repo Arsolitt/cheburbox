@@ -101,7 +101,7 @@ An inbound is a service this server listens on. Four types are supported, identi
 | `vless`     | VLESS proxy with TLS or Reality.                                 |
 | `hysteria2` | Hysteria2 (QUIC) with optional obfs and masquerade.              |
 | `tun`       | OS-level TUN device (typically used on client servers).          |
-| `amneziawg` | AmneziaWG (WireGuard + Amnezia 2.0 obfuscation) server endpoint. |
+| `amneziawg` | AmneziaWG (WireGuard + Amnezia 2.0–3.1 obfuscation) server endpoint. |
 
 Common inbound fields:
 
@@ -310,7 +310,7 @@ TUN inbounds usually run with `listen_port: 0` (allowed by validation).
 
 AmneziaWG is WireGuard hardened with the Amnezia 2.0–3.1 obfuscation layers — X25519 plus generated Junk/Handshake magic-byte parameters (Jc/Jmin/Jmax/S1-S4/H1-H4), optionally extended with AWG 3.x header protection and transport ranges — that defeat WireGuard protocol fingerprinting. Cheburbox maps an `amneziawg` inbound onto a **native sing-box `wireguard` endpoint** emitted under the top-level `endpoints[]` array, **not** under `inbounds[]`. The endpoint carries an `amnezia` sub-block; the server holds the persisted X25519 private key and the shared AmneziaWG parameters, and each declared user becomes a peer with its own generated keypair.
 
-sing-box 1.13 (the extended fork base) promoted WireGuard from an inbound/outbound to an `endpoint`, and the fork adds the `amnezia` block for AmneziaWG 2.0–3.1 obfuscation. Cheburbox builds the underlying endpoint and persists all key material so peers remain stable across regenerations (see [Persistence](#persistence)).
+sing-box promoted WireGuard from an inbound/outbound to an `endpoint` in 1.13, and the extended fork (base 1.14.1) adds the `amnezia` block for AmneziaWG 2.0–3.1 obfuscation. Cheburbox builds the underlying endpoint and persists all key material so peers remain stable across regenerations (see [Persistence](#persistence)).
 
 ```json
 {

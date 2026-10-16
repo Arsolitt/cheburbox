@@ -2535,7 +2535,7 @@ No. The obfs type is hardcoded to `salamander` for cross-server Hysteria2 outbou
 
 ### Why is my AmneziaWG config under `endpoints[]` instead of `inbounds[]` / `outbounds[]`?
 
-Sing-box 1.13 promoted WireGuard from an outbound to a top-level **endpoint** (`endpoints[]`). AmneziaWG 2.0 rides the same native `wireguard` endpoint and adds an `amnezia` sub-block; cheburbox's extended sing-box fork implements that block. A `wireguard` endpoint with a non-nil `amnezia` block is AmneziaWG; without it, it is plain WireGuard. So AmneziaWG inbounds and cross-server outbounds both appear under `endpoints[]` in the generated `config.json`, never under `inbounds[]` or `outbounds[]`.
+Sing-box 1.13 promoted WireGuard from an outbound to a top-level **endpoint** (`endpoints[]`). AmneziaWG 2.0–3.1 rides the same native `wireguard` endpoint and adds an `amnezia` sub-block; cheburbox's extended sing-box fork implements that block. A `wireguard` endpoint with a non-nil `amnezia` block is AmneziaWG; without it, it is plain WireGuard. So AmneziaWG inbounds and cross-server outbounds both appear under `endpoints[]` in the generated `config.json`, never under `inbounds[]` or `outbounds[]`.
 
 ### Why can't I set the AmneziaWG Jc / S1 / H1 / I1 parameters directly?
 

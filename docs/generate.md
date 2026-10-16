@@ -79,7 +79,7 @@ Output directories are created with mode `0750`. Hysteria2 certificates are self
 
 ### AmneziaWG endpoints
 
-A server that declares `amneziawg`-typed inbounds or outbounds gets a **top-level `endpoints[]` array** in its `config.json` — these are sing-box `wireguard`-type endpoints (AmneziaWG = WireGuard + Amnezia 2.0 obfuscation), emitted alongside `inbounds[]` and `outbounds[]`, never inside them. `partitionAmneziaWG` removes every `amneziawg` entry from the inbound/outbound lists before the regular builders run, so AmneziaWG appears **only** as endpoints.
+A server that declares `amneziawg`-typed inbounds or outbounds gets a **top-level `endpoints[]` array** in its `config.json` — these are sing-box `wireguard`-type endpoints (AmneziaWG = WireGuard + Amnezia 2.0–3.1 obfuscation), emitted alongside `inbounds[]` and `outbounds[]`, never inside them. `partitionAmneziaWG` removes every `amneziawg` entry from the inbound/outbound lists before the regular builders run, so AmneziaWG appears **only** as endpoints.
 
 **Server side** (from an `amneziawg` inbound) — one endpoint carrying:
 
