@@ -984,7 +984,7 @@ Two or more Hysteria2 inbounds on the same server cannot share the same `tls.ser
 
 AmneziaWG server inbound. Unlike VLESS/Hysteria2, an AmneziaWG inbound is emitted as a native sing-box `wireguard` **endpoint** under the top-level `endpoints[]` array (not under `inbounds[]`). Sing-box 1.13 promoted WireGuard from an outbound to a top-level endpoint; the extended sing-box fork adds the `amnezia` sub-block that distinguishes AmneziaWG traffic from plain WireGuard.
 
-The server endpoint owns a persisted X25519 private key and a generated set of shared amnezia obfuscation parameters (Jc/Jmin/Jmax/S1-S4/H1-H4). Declared users are provisioned as WireGuard peers, each allocated a `/32` host address from the inbound subnet. The server side carries **no** I1-I5 parameters — those are client-only.
+The server endpoint owns a persisted X25519 private key and a generated set of shared amnezia obfuscation parameters (Jc/Jmin/Jmax/S1-S4/H1-H4). With `amnezia.version` `"3.0"`/`"3.1"` the block additionally carries AWG 3.x transport protection: a generated header-protection key (32 random bytes, base64), S-prefixes at or above the header-protection floor (12), and six transport ranges (`content_padding_addition` plus five timers). Declared users are provisioned as WireGuard peers, each allocated a `/32` host address from the inbound subnet. The server side carries **no** I1-I5 parameters — those are client-only.
 
 > **`type`**: `"amneziawg"`
 
@@ -1000,12 +1000,13 @@ The server endpoint owns a persisted X25519 private key and a generated set of s
 
 ### AmneziaConfig
 
-Only `protocol`, `preset`, and `mtu` are user-facing. The raw Jc/Jmin/Jmax/S1-S4/H1-H4 (and client-side I1-I5) parameters are produced by the bundled `amnezigo` library — from the named preset or, when `preset` is empty, fully random per server — and persisted in `config.json` so they stay stable across runs. They are never specified directly in `cheburbox.json`.
+Only `protocol`, `preset`, `version`, and `mtu` are user-facing. The raw Jc/Jmin/Jmax/S1-S4/H1-H4 parameters, the AWG 3.x header-protection key and transport ranges, and client-side I1-I5 are produced by the bundled `amnezigo` library — from the named preset or, when `preset` is empty, fully random per server — and persisted in `config.json` so they stay stable across runs. They are never specified directly in `cheburbox.json`.
 
 | Field | Type | Default | Required | Description |
 | --- | --- | --- | --- | --- |
 | `protocol` | `string` | `quic` | No | AmneziaWG transport protocol. One of `quic`, `dns`, `dtls`, `stun`, `sip`, `rtp`, `random`. |
 | `preset` | `string` | _(empty)_ | No | amnezigo preset name (e.g. `home-balanced`, `mobile-aggressive`). Empty → fully random shared params per server. |
+| `version` | `string` | _(empty ≡ `"2.0"`)_ | No | AmneziaWG generation: `""`/`"2.0"`/`"3.0"`/`"3.1"`. Empty means 2.0 (existing servers keep the exact 2.0 key set). `"3.0"`/`"3.1"` add header protection (key + S-prefixes ≥ 12 + six transport ranges: `content_padding_addition` and five timers, defaults `2-10`, `120-180`, `5-8`, `180-240`, `8-12`, `16-20`). With a preset the preset's `ContentPadding` and H1-H4 are kept; without one, H1-H4 collapse to the standard `1-4`. The 3.1 `RandomTrailers`/`DisableCookies` flags are never emitted (sing-box-extended cannot express them). 3.x requires a sing-box-extended runtime ≥ 2.6.5 and 3.x-capable AmneziaVPN apps; changing `version` regenerates the server's amnezia block. |
 | `mtu` | `int` | `1280` | No | Transport MTU. Overrides the inbound-level `mtu` when set. |
 
 ### Generated Output
@@ -1252,7 +1253,7 @@ Same as VLESS: `endpoint` overrides the server address, but the port always come
 
 Routes traffic to another server's AmneziaWG inbound. Like the inbound, this is emitted as a native sing-box `wireguard` endpoint under `endpoints[]` (not an outbound). The client owns its own persisted X25519 keypair; its derived public key is registered as a peer on the target server's endpoint (keyed by the resolved user name), mirroring the VLESS/Hysteria2 cross-server model.
 
-The client inherits the target server's shared amnezia parameters (Jc/Jmin/Jmax/S1-S4/H1-H4) verbatim and additionally generates its own client-only I1-I5 parameters. Its single peer is the server: server public key + `endpoint:port`, `allowed_ips` `0.0.0.0/0,::/0`.
+The client inherits the target server's shared amnezia parameters (Jc/Jmin/Jmax/S1-S4/H1-H4, plus the AWG 3.x header-protection key and transport ranges when the server runs `version` `"3.0"`/`"3.1"`) verbatim and additionally generates its own client-only I1-I5 parameters. Its single peer is the server: server public key + `endpoint:port`, `allowed_ips` `0.0.0.0/0,::/0`. The 3.1 `RandomTrailers`/`DisableCookies` flags are never emitted: sing-box-extended cannot express them, so every side runs with both off (`vpn://` links carry `RandomTrailers = off` / `DisableCookies = off`).
 
 > **`type`**: `"amneziawg"`
 
@@ -1827,9 +1828,10 @@ AmneziaWG uses three layers of persisted cryptographic material, all stored in t
 
 - **Server private key.** An X25519 keypair generated via the bundled `amnezigo` library. The private key persists; the public key is always derived from it, so the two can never drift.
 - **Shared amnezia parameters.** Jc/Jmin/Jmax/S1-S4/H1-H4, generated once (randomised, avoiding the padded WireGuard handshake sizes). These must match on server and client, so clients copy them verbatim from their target server. **No I1-I5 on the server side** — those are client-only.
+- **AWG 3.x header protection (optional).** When `amnezia.version` is `"3.0"`/`"3.1"`, the block also persists the generated header-protection key (32 random bytes, base64) and the six transport ranges. A persisted block wins verbatim only when its transport-protection state matches the requested version; changing `version` regenerates the block (the endpoint private key is unaffected).
 - **Client private keys.** Each cross-server client owns its own persisted X25519 keypair; its derived public key is registered as a peer on the target server. A preshared key is also persisted per client peer.
 
-Only `protocol` and `mtu` are user-facing in `cheburbox.json` (`AmneziaConfig`); the raw Jc/S1/H1/I1 values are generated, never specified. A normal run reuses them from the previous `config.json`; `--full-reset` regenerates all of them.
+Only `protocol`, `preset`, `version`, and `mtu` are user-facing in `cheburbox.json` (`AmneziaConfig`); the raw Jc/S1/H1/I1 values are generated, never specified. A normal run reuses them from the previous `config.json`; `--full-reset` regenerates all of them (including header-protection keys).
 
 ## Certificate Generation
 
@@ -2537,7 +2539,7 @@ Sing-box 1.13 promoted WireGuard from an outbound to a top-level **endpoint** (`
 
 ### Why can't I set the AmneziaWG Jc / S1 / H1 / I1 parameters directly?
 
-You cannot. Only `amnezia.protocol` (one of `quic`/`dns`/`dtls`/`stun`/`sip`/`rtp`/`random`, default `quic`), `amnezia.preset` (named parameter bundle, empty for fully random), and `amnezia.mtu` (default `1280`) are user-facing in `cheburbox.json`. The raw obfuscation parameters — shared Jc/Jmin/Jmax/S1-S4/H1-H4 on the server, plus client-only I1-I5 — are generated by the bundled `amnezigo` library and persisted in `config.json` so they stay stable across runs. Editing them by hand is overwritten on the next generate; use `--full-reset` to rotate them.
+You cannot. Only `amnezia.protocol` (one of `quic`/`dns`/`dtls`/`stun`/`sip`/`rtp`/`random`, default `quic`), `amnezia.preset` (named parameter bundle, empty for fully random), `amnezia.version` (`""`/`"2.0"`/`"3.0"`/`"3.1"`, empty ≡ `"2.0"`; `"3.0"`/`"3.1"` enable header protection), and `amnezia.mtu` (default `1280`) are user-facing in `cheburbox.json`. The raw obfuscation parameters — shared Jc/Jmin/Jmax/S1-S4/H1-H4 on the server, the AWG 3.x header-protection key and transport ranges when enabled, plus client-only I1-I5 — are generated by the bundled `amnezigo` library and persisted in `config.json` so they stay stable across runs. Editing them by hand is overwritten on the next generate; use `--full-reset` to rotate them.
 
 ### Why is the Reality Short ID 16 hex characters?
 

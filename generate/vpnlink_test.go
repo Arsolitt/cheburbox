@@ -248,6 +248,94 @@ func TestAWGClientINI_PreservesFields(t *testing.T) {
 			t.Errorf("INI missing %q\n--- INI ---\n%s", want, text)
 		}
 	}
+
+	// A block without a header-protection key is 2.0: none of the 3.x keys
+	// may appear in the INI.
+	for _, absent := range []string{
+		"HeaderProtectionKey",
+		"ContentPaddingAddition",
+		"RekeyAfterTime",
+		"RekeyTimeout",
+		"RejectAfterTime",
+		"KeepaliveTimeout",
+		"MaxHandshakeAttempts",
+		"RandomTrailers",
+		"DisableCookies",
+	} {
+		if strings.Contains(text, absent) {
+			t.Errorf("2.0 INI must not contain %q\n--- INI ---\n%s", absent, text)
+		}
+	}
+}
+
+// TestAWGClientINI_TransportProtectionKeys asserts the exact AWG 3.x key set a
+// header-protected client INI carries: the key plus the six ranges from the
+// block, with the 3.1 flags pinned off (sing-box-extended cannot express them).
+func TestAWGClientINI_TransportProtectionKeys(t *testing.T) {
+	t.Parallel()
+
+	const privKey = "cHJpdmF0ZWtleWJhc2U2NA=="
+	const hpk = "c2VudGluZWxrZXk="
+
+	wg := &option.WireGuardEndpointOptions{
+		MTU:        1280,
+		Address:    badoption.Listable[netip.Prefix]{netip.MustParsePrefix("10.7.0.2/32")},
+		PrivateKey: privKey,
+		Peers: []option.WireGuardPeer{
+			{
+				Address:   "203.0.113.10",
+				Port:      51820,
+				PublicKey: "serverPubKey",
+				AllowedIPs: badoption.Listable[netip.Prefix]{
+					netip.MustParsePrefix("0.0.0.0/0"),
+				},
+			},
+		},
+		Amnezia: &option.WireGuardAmnezia{
+			JC:   5,
+			JMin: 10,
+			JMax: 20,
+			S1:   30,
+			S2:   40,
+			S3:   50,
+			S4:   60,
+			H1:   &badoption.Range[uint32]{From: 1, To: 1},
+			H2:   &badoption.Range[uint32]{From: 2, To: 2},
+			H3:   &badoption.Range[uint32]{From: 3, To: 3},
+			H4:   &badoption.Range[uint32]{From: 4, To: 4},
+
+			HeaderProtectionKey:    hpk,
+			ContentPaddingAddition: &badoption.Range[uint32]{From: 2, To: 10},
+			RekeyAfterTime:         &badoption.Range[uint32]{From: 120, To: 180},
+			RekeyTimeout:           &badoption.Range[uint32]{From: 5, To: 8},
+			RejectAfterTime:        &badoption.Range[uint32]{From: 180, To: 240},
+			KeepaliveTimeout:       &badoption.Range[uint32]{From: 8, To: 12},
+			MaxHandshakeAttempts:   &badoption.Range[uint32]{From: 16, To: 20},
+		},
+	}
+
+	ini, err := awgClientINI(wg, nil)
+	if err != nil {
+		t.Fatalf("awgClientINI: %v", err)
+	}
+	text := string(ini)
+
+	wantSubstrings := []string{
+		"HeaderProtectionKey = " + hpk,
+		"ContentPaddingAddition = 2-10",
+		"RekeyAfterTime = 120-180",
+		"RekeyTimeout = 5-8",
+		"RejectAfterTime = 180-240",
+		"KeepaliveTimeout = 8-12",
+		"MaxHandshakeAttempts = 16-20",
+		"RandomTrailers = off",
+		"DisableCookies = off",
+	}
+	for _, want := range wantSubstrings {
+		if !strings.Contains(text, want) {
+			t.Errorf("INI missing %q\n--- INI ---\n%s", want, text)
+		}
+	}
 }
 
 // TestVPNDisplayName covers the tag → app display name derivation. The

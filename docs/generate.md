@@ -86,13 +86,13 @@ A server that declares `amneziawg`-typed inbounds or outbounds gets a **top-leve
 - `ListenPort` (the inbound's `listen_port`).
 - The server's X25519 `PrivateKey`.
 - A `Peers` list — one peer per declared inbound user **plus** one per cross-server client that provisioned itself into this server's peer registry. Each peer's `AllowedIPs` is the peer's allocated `/32` tunnel address.
-- The shared Amnezia obfuscation block (`Jc`/`Jmin`/`Jmax`/`S1`–`S4`/`H1`–`H4`).
+- The shared Amnezia obfuscation block (`Jc`/`Jmin`/`Jmax`/`S1`–`S4`/`H1`–`H4`) — plus, for `amnezia.version` `"3.0"`/`"3.1"`, the generated header-protection key and the six AWG 3.x transport ranges (`content_padding_addition` + five timers).
 
 **Client side** (from an `amneziawg` outbound targeting another server) — one endpoint carrying:
 
 - The client's own X25519 `PrivateKey`.
 - A single peer pointing at the target server: the server's public key, the server's `address:port` endpoint, a preshared key, and `AllowedIPs` of `["0.0.0.0/0", "::/0"]` (all traffic).
-- A client-adapted Amnezia block: the server's shared params are inherited, with client-only `I1`–`I5` freshly generated.
+- A client-adapted Amnezia block: the server's shared params (including the AWG 3.x header-protection key and transport ranges when the server runs `version` `"3.0"`/`"3.1"`) are inherited, with client-only `I1`–`I5` freshly generated. The 3.1 `RandomTrailers`/`DisableCookies` flags are never emitted — sing-box-extended cannot express them, so every side runs with both off and `vpn://` links carry `RandomTrailers = off` / `DisableCookies = off`.
 
 See [Credential persistence](#credential-persistence) for how endpoint keys are reused across runs.
 
@@ -104,7 +104,7 @@ On every run, `generate` re-reads each `<server>/config.json` (if present) using
 - **Hysteria2** — each user's password.
 - **Reality** — `private_key` and `short_id` list (only when `reality.enabled`). The public key is derived on demand from the private key (tries std, raw-std, and raw-url base64) — it is **not** stored.
 - **Obfs** — password.
-- **AmneziaWG endpoints** — for each wireguard endpoint with a non-nil `Amnezia` block: the endpoint's X25519 `PrivateKey`, the shared Amnezia obfuscation block (`Jc`/`Jmin`/`Jmax`/`S1`–`S4`/`H1`–`H4`), and each peer's `PublicKey` + `PresharedKey` (keyed by public key, since wireguard peers carry no name). Plain wireguard endpoints (nil `Amnezia`) are **skipped** — only AmneziaWG is persisted.
+- **AmneziaWG endpoints** — for each wireguard endpoint with a non-nil `Amnezia` block: the endpoint's X25519 `PrivateKey`, the shared Amnezia obfuscation block (`Jc`/`Jmin`/`Jmax`/`S1`–`S4`/`H1`–`H4`, plus the AWG 3.x header-protection key and transport ranges when present), and each peer's `PublicKey` + `PresharedKey` (keyed by public key, since wireguard peers carry no name). Plain wireguard endpoints (nil `Amnezia`) are **skipped** — only AmneziaWG is persisted.
 
 For each user declared in `cheburbox.json`:
 

@@ -3,6 +3,7 @@ package generate
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"net"
 	"net/netip"
 	"path/filepath"
@@ -105,10 +106,20 @@ func vpnDisplayName(tag string) string {
 
 // awgClientINI renders a sing-box wireguard client endpoint as an AWG client
 // INI via amnezigo.WriteClientConfig. The DNS list is joined into the Interface
-// DNS line; WriteClientConfig always emits a "DNS =" line even when empty.
+// DNS line; WriteClientConfig always emits a "DNS =" line even when empty. The
+// 3.x transport-protection fields are carried through when the block has a
+// header-protection key (AWG 3.x); RandomTrailers/DisableCookies are pinned
+// off because every cheburbox endpoint is a sing-box-extended instance that
+// cannot express them — enabling them on any AmneziaVPN peer would
+// desynchronize classifier/cookie behavior with the sing-box side.
 func awgClientINI(wg *option.WireGuardEndpointOptions, dns []string) ([]byte, error) {
 	peer := wg.Peers[0]
 	a := wg.Amnezia
+
+	version := amnezigo.AWG20
+	if a.HeaderProtectionKey != "" {
+		version = amnezigo.AWG31
+	}
 
 	clientCfg := amnezigo.ClientConfig{
 		Interface: amnezigo.ClientInterfaceConfig{
@@ -134,6 +145,17 @@ func awgClientINI(wg *option.WireGuardEndpointOptions, dns []string) ([]byte, er
 					H2:   fromBadRange(a.H2),
 					H3:   fromBadRange(a.H3),
 					H4:   fromBadRange(a.H4),
+
+					Version:              version,
+					HeaderProtectionKey:  a.HeaderProtectionKey,
+					ContentPadding:       fromRangeToU16(a.ContentPaddingAddition),
+					RekeyAfterTime:       fromRangeToU16(a.RekeyAfterTime),
+					RekeyTimeout:         fromRangeToU16(a.RekeyTimeout),
+					RejectAfterTime:      fromRangeToU16(a.RejectAfterTime),
+					KeepaliveTimeout:     fromRangeToU16(a.KeepaliveTimeout),
+					MaxHandshakeAttempts: fromRangeToU16(a.MaxHandshakeAttempts),
+					RandomTrailers:       false,
+					DisableCookies:       false,
 				},
 			},
 		},
@@ -171,6 +193,24 @@ func fromBadRange(r *badoption.Range[uint32]) amnezigo.HeaderRange {
 		return amnezigo.HeaderRange{}
 	}
 	return amnezigo.HeaderRange{Min: r.From, Max: r.To}
+}
+
+// fromRangeToU16 converts a sing-box badoption uint32 range to an amnezigo
+// U16Range. A nil pointer yields the zero range, which the amnezigo writer
+// treats as unset and omits; out-of-range values (hand-edited configs) clamp
+// to zero and thereby disable the key.
+func fromRangeToU16(r *badoption.Range[uint32]) amnezigo.U16Range {
+	if r == nil {
+		return amnezigo.U16Range{}
+	}
+	return amnezigo.U16Range{Min: uint32ToUint16(r.From), Max: uint32ToUint16(r.To)}
+}
+
+func uint32ToUint16(v uint32) uint16 {
+	if v > math.MaxUint16 {
+		return 0
+	}
+	return uint16(v)
 }
 
 // plainIPDNSServers keeps DNS server entries whose Server field is a plain IP

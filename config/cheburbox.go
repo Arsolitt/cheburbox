@@ -126,14 +126,15 @@ type MasqueradeConfig struct {
 	RewriteHost bool   `json:"rewrite_host,omitempty"`
 }
 
-// AmneziaConfig holds AmneziaWG obfuscation preferences. Protocol, Preset, and
-// MTU are user-facing; the actual Jc/S1/H1/I1 parameters are produced by
-// amnezigo (from the named preset or, when Preset is empty, fully random) and
-// persisted in config.json so they stay stable across runs.
+// AmneziaConfig holds AmneziaWG obfuscation preferences. Protocol, Preset,
+// Version, and MTU are user-facing; the actual Jc/S1/H1/I1 parameters are
+// produced by amnezigo (from the named preset or, when Preset is empty, fully
+// random) and persisted in config.json so they stay stable across runs.
 type AmneziaConfig struct {
-	Protocol string `json:"protocol,omitempty"` // quic|dns|dtls|stun|sip|rtp|random; default quic
-	Preset   string `json:"preset,omitempty"`   // amnezigo preset name; empty → random params
-	MTU      int    `json:"mtu,omitempty"`      // default 1280
+	Protocol string `json:"protocol,omitempty"`
+	Preset   string `json:"preset,omitempty"`
+	Version  string `json:"version,omitempty"`
+	MTU      int    `json:"mtu,omitempty"`
 }
 
 // InboundMultiplex holds sing-box multiplex (mux) configuration for VLESS

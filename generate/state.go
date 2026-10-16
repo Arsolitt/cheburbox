@@ -148,11 +148,11 @@ func (s *ServerState) EnsureUser(server string, tag string, userName string) err
 // public UDP endpoint, transport protocol, and the shared amnezia obfuscation
 // parameters that every peer must match.
 type AmneziaWGServerInfo struct {
+	SharedAmnezia option.WireGuardAmnezia
 	Subnet        netip.Prefix
 	PublicKey     string
 	EndpointAddr  string
 	Protocol      string
-	SharedAmnezia option.WireGuardAmnezia
 	MTU           uint32
 	ListenPort    uint16
 }
@@ -249,8 +249,8 @@ func (s *ServerState) EnsureAmneziaWGPeer(
 // regenerate fresh keys whenever a client dirtied it, desynchronising the
 // client's already-built peer (which captured the first pass's public key).
 type amneziaWGServerMaterial struct {
-	PrivateKey string
 	Amnezia    option.WireGuardAmnezia
+	PrivateKey string
 }
 
 // storeAmneziaWGMaterial caches the resolved server key material.

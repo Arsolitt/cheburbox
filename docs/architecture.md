@@ -91,7 +91,7 @@ Cheburbox does **not** regenerate credentials on every run. On each invocation, 
    - Reality block (only when `reality.enabled`) → `{private_key, short_id}`
    - Hysteria2 obfs → password
 3. Walks the top-level `Endpoints` array and extracts:
-   - AmneziaWG endpoints (only when the endpoint's `amnezia` block is non-nil — plain WireGuard endpoints are skipped) → `{private_key, amnezia_params, peers[{public_key, preshared_key}]}`. The per-peer map is keyed by peer public key since WireGuard peers carry no name field. `cloneAmnezia` deep-copies the H1–H4 pointer ranges so persisted state does not alias the parsed options.
+   - AmneziaWG endpoints (only when the endpoint's `amnezia` block is non-nil — plain WireGuard endpoints are skipped) → `{private_key, amnezia_params, peers[{public_key, preshared_key}]}`. The per-peer map is keyed by peer public key since WireGuard peers carry no name field. `cloneAmnezia` deep-copies the H1–H4 and the six AWG 3.x range pointers so persisted state does not alias the parsed options.
 4. Returns empty credentials (no error) if `config.json` is missing.
 
 Resolution is per-user: persisted credentials win verbatim if present; otherwise fresh ones are generated. The Reality public key is **not** stored — it is derived from the private key on demand. The same pattern applies to AmneziaWG: `WireGuardEndpointCreds.PrivateKey` is persisted and the public key is always derived from it (via `amnezigo.DerivePublicKey`), so the two can never drift. By default, undeclared users present in the previous `config.json` are also preserved (this is what protects auto-provisioned cross-server users from being deleted).
@@ -108,6 +108,7 @@ Cryptographic generators:
 | AmneziaWG server/client keypair | `amnezigo.GenerateKeyPair` (X25519) — distinct from the `crypto/ecdh` Reality path (`generate/wireguard.go`) |
 | AmneziaWG peer preshared key | `amnezigo.GeneratePSK` |
 | AmneziaWG shared obfuscation params (Jc/Jmin/Jmax/S1–S4/H1–H4) | `amnezigo.GenerateSPrefixes` + `GenerateJunkParamsWithForbidden` + `GenerateHeaderRanges` |
+| AmneziaWG 3.x header-protection key | `amnezigo.GenerateHeaderProtectionKey` (32 random bytes, base64 — a symmetric ChaCha20 key, not a Curve25519 scalar) |
 
 `--full-reset` is the explicit opt-in to wipe persisted state and regenerate everything (and force cert regeneration regardless of SAN match). It is mutually exclusive with `--orphan`. **Why this matters:** regenerating credentials silently would break every already-deployed client, which is why preservation is the default and reset is gated behind a named flag.
 
@@ -126,7 +127,7 @@ See [`./generate.md`](./generate.md) for the full credentials lifecycle.
 - Detect Hysteria2 inbounds on the same server sharing a `tls.server_name` (which would conflict on cert files).
 - Verify that `urltest` / `selector` group `outbounds` reference tags defined on the **same** server (cross-server tags are not supported in groups).
 - Verify cross-server outbound → inbound tag references resolve.
-- Verify AmneziaWG inbounds have a non-zero `listen_port`, exactly one CIDR address, and (when set) a valid transport protocol and preset (`checkAmneziaWGInbounds`).
+- Verify AmneziaWG inbounds have a non-zero `listen_port`, exactly one CIDR address, and (when set) a valid transport protocol, preset, and AWG version (`checkAmneziaWGInbounds`).
 - Verify AmneziaWG outbounds reference a valid target server and target inbound tag, with exactly one CIDR address (`checkAmneziaWGOutbounds`).
 - Detect AmneziaWG cross-server AllowedIPs collisions: two clients provisioning the same `/32` against one server endpoint are indistinguishable peers (`checkAmneziaWGAllowedIPsCollision`).
 
@@ -196,7 +197,7 @@ Behavioral quirks worth knowing before debugging.
 
 - **`--full-reset` replaced an earlier `--clean` flag.** The current source uses `--full-reset` only.
 - **`--full-reset` and `--orphan` are mutually exclusive.** Cobra rejects both at parse time.
-- **`--full-reset` discards every persisted credential.** UUIDs, passwords, x25519 keypairs, Reality short IDs, obfs passwords, AmneziaWG private keys, peer public/preshared keys, and amnezia obfuscation params — all regenerated. Already-deployed clients will lose access.
+- **`--full-reset` discards every persisted credential.** UUIDs, passwords, x25519 keypairs, Reality short IDs, obfs passwords, AmneziaWG private keys, peer public/preshared keys, and amnezia obfuscation params (including AWG 3.x header-protection keys) — all regenerated. Already-deployed clients will lose access.
 - **`--full-reset` also forces cert regeneration**, regardless of SAN match.
 - **By default, undeclared users are preserved.** This protects auto-provisioned cross-server users from disappearing on regeneration.
 - **`--orphan` keeps only persisted users that are declared in the current `cheburbox.json` or referenced by another server's cross-server outbound.** Stale users from decommissioned proxies are removed.

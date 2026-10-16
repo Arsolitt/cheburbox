@@ -20,6 +20,7 @@ import (
 	"github.com/Arsolitt/amnezigo"
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/include"
+	"github.com/sagernet/sing-box/option"
 	singjson "github.com/sagernet/sing/common/json"
 
 	"github.com/Arsolitt/cheburbox/config"
@@ -308,6 +309,10 @@ func singBoxCheck(configPath string) error {
 		return fmt.Errorf("parse config.json: %w", unmarshalErr)
 	}
 
+	if err := checkAmneziaHeaderProtectionFloor(&opts); err != nil {
+		return err
+	}
+
 	opts.Context = ctx
 
 	instance, err := box.New(opts)
@@ -317,6 +322,38 @@ func singBoxCheck(configPath string) error {
 
 	_ = instance.Close()
 
+	return nil
+}
+
+// amneziaHeaderProtectionNonceFloor mirrors amnezigo generator.go
+// headerProtectionNonceSize: the ChaCha20 header-cipher nonce is the first S
+// bytes of the packet, so the device refuses S < 12 whenever header protection
+// is on. Header-protected server configs are generated at or above this floor;
+// the check guards hand-edited persisted configs.
+const amneziaHeaderProtectionNonceFloor = 12
+
+// checkAmneziaHeaderProtectionFloor requires S1..S4 >= 12 on every wireguard
+// endpoint amnezia block that carries a header-protection key. Blocks without
+// the key are 2.0 and carry no floor.
+func checkAmneziaHeaderProtectionFloor(opts *box.Options) error {
+	for _, ep := range opts.Endpoints {
+		wg, ok := ep.Options.(*option.WireGuardEndpointOptions)
+		if !ok || wg.Amnezia == nil || wg.Amnezia.HeaderProtectionKey == "" {
+			continue
+		}
+		a := wg.Amnezia
+		for i, s := range [4]int{a.S1, a.S2, a.S3, a.S4} {
+			if s < amneziaHeaderProtectionNonceFloor {
+				return fmt.Errorf(
+					"endpoint %q: header protection requires S1-S4 >= %d (got S%d=%d)",
+					ep.Tag,
+					amneziaHeaderProtectionNonceFloor,
+					i+1,
+					s,
+				)
+			}
+		}
+	}
 	return nil
 }
 
@@ -491,9 +528,35 @@ func checkAmneziaWGInbounds(server string, cfg config.Config) []error {
 				in.Amnezia.Preset,
 			))
 		}
+
+		if in.Amnezia != nil {
+			if err := checkAmneziaWGVersion(server, in.Tag, in.Amnezia.Version); err != nil {
+				errs = append(errs, err)
+			}
+		}
 	}
 
 	return errs
+}
+
+// checkAmneziaWGVersion validates the AWG version selector of an amneziawg
+// inbound. An empty value is the 2.0 default and always valid; amnezigo's
+// ParseAWGVersion must never see the empty string directly (its empty value
+// means 3.1).
+func checkAmneziaWGVersion(server, tag, rawVersion string) error {
+	version := rawVersion
+	if version == "" {
+		version = "2.0"
+	}
+	if _, err := amnezigo.ParseAWGVersion(version); err != nil {
+		return fmt.Errorf(
+			"server %q: amneziawg inbound %q has invalid amnezia version %q (want one of 2.0, 3.0, 3.1)",
+			server,
+			tag,
+			rawVersion,
+		)
+	}
+	return nil
 }
 
 // checkAmneziaWGOutbounds validates Phase-1 intra-server rules for amneziawg

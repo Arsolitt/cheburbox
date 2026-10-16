@@ -331,14 +331,18 @@ func buildTunInbound(in config.Inbound) (option.Inbound, error) {
 	}
 
 	opts := option.TunInboundOptions{
-		InterfaceName:          in.InterfaceName,
-		MTU:                    intToUint32(in.MTU),
-		Address:                badoption.Listable[netip.Prefix](addrs),
-		AutoRoute:              in.AutoRoute,
-		AutoRedirect:           in.AutoRedirect,
-		StrictRoute:            in.StrictRoute,
-		IPRoute2TableIndex:     in.IPRoute2TableIndex,
-		IPRoute2RuleIndex:      in.IPRoute2RuleIndex,
+		InterfaceName:      in.InterfaceName,
+		MTU:                intToUint32(in.MTU),
+		Address:            badoption.Listable[netip.Prefix](addrs),
+		AutoRoute:          in.AutoRoute,
+		AutoRedirect:       in.AutoRedirect,
+		StrictRoute:        in.StrictRoute,
+		IPRoute2TableIndex: in.IPRoute2TableIndex,
+		IPRoute2RuleIndex:  in.IPRoute2RuleIndex,
+		// Upstream removed the toggle in sing-box 1.14 (endpoint-independent
+		// NAT is unconditional now); the field is kept emitting so regenerated
+		// config.json stays byte-identical with deployed fleets.
+		//nolint:staticcheck // deprecated sing-box tun field kept for config.json stability.
 		EndpointIndependentNat: in.EndpointIndependentNAT,
 		Stack:                  in.Stack,
 		ExcludeInterface:       badoption.Listable[string](in.ExcludeInterface),

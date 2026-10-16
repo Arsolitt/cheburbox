@@ -9,6 +9,7 @@ import (
 	"github.com/sagernet/sing-box/include"
 	"github.com/sagernet/sing-box/option"
 	singjson "github.com/sagernet/sing/common/json"
+	"github.com/sagernet/sing/common/json/badoption"
 
 	"github.com/Arsolitt/cheburbox/config"
 )
@@ -52,7 +53,7 @@ func ConvertRoute(route *config.Route) (*option.RouteOptions, error) {
 	for _, name := range route.CustomRuleSets {
 		rs := option.RuleSet{
 			Type: C.RuleSetTypeLocal,
-			Tag:  name,
+			Tag:  badoption.Listable[string]{name},
 			LocalOptions: option.LocalRuleSet{
 				Path: filepath.Join("rule-set", name+".srs"),
 			},

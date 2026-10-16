@@ -308,9 +308,9 @@ TUN inbounds usually run with `listen_port: 0` (allowed by validation).
 
 ### AmneziaWG
 
-AmneziaWG is WireGuard hardened with the Amnezia 2.0 obfuscation layer — X25519 plus generated Junk/Handshake magic-byte parameters (Jc/Jmin/Jmax/S1-S4/H1-H4) that defeat WireGuard protocol fingerprinting. Cheburbox maps an `amneziawg` inbound onto a **native sing-box `wireguard` endpoint** emitted under the top-level `endpoints[]` array, **not** under `inbounds[]`. The endpoint carries an `amnezia` sub-block; the server holds the persisted X25519 private key and the shared AmneziaWG parameters, and each declared user becomes a peer with its own generated keypair.
+AmneziaWG is WireGuard hardened with the Amnezia 2.0–3.1 obfuscation layers — X25519 plus generated Junk/Handshake magic-byte parameters (Jc/Jmin/Jmax/S1-S4/H1-H4), optionally extended with AWG 3.x header protection and transport ranges — that defeat WireGuard protocol fingerprinting. Cheburbox maps an `amneziawg` inbound onto a **native sing-box `wireguard` endpoint** emitted under the top-level `endpoints[]` array, **not** under `inbounds[]`. The endpoint carries an `amnezia` sub-block; the server holds the persisted X25519 private key and the shared AmneziaWG parameters, and each declared user becomes a peer with its own generated keypair.
 
-sing-box 1.13 (the extended fork base) promoted WireGuard from an inbound/outbound to an `endpoint`, and the fork adds the `amnezia` block for AmneziaWG 2.0 obfuscation. Cheburbox builds the underlying endpoint and persists all key material so peers remain stable across regenerations (see [Persistence](#persistence)).
+sing-box 1.13 (the extended fork base) promoted WireGuard from an inbound/outbound to an `endpoint`, and the fork adds the `amnezia` block for AmneziaWG 2.0–3.1 obfuscation. Cheburbox builds the underlying endpoint and persists all key material so peers remain stable across regenerations (see [Persistence](#persistence)).
 
 ```json
 {
@@ -329,20 +329,23 @@ sing-box 1.13 (the extended fork base) promoted WireGuard from an inbound/outbou
 | `listen_port` | `int`            | Yes      | UDP port the WireGuard endpoint binds.                                                         |
 | `address`     | `[]string`       | Yes      | Exactly one CIDR — the tunnel subnet for this server (e.g. `["10.7.0.1/24"]`).                 |
 | `mtu`         | `int`            | No       | WireGuard interface MTU. Defaults to `1280`.                                                    |
-| `amnezia`     | `*AmneziaConfig` | No       | User-facing obfuscation preferences (`protocol`, `preset`, `mtu`); raw Jc/S1/H1 params are generated.    |
+| `amnezia`     | `*AmneziaConfig` | No       | User-facing obfuscation preferences (`protocol`, `preset`, `version`, `mtu`); raw Jc/S1/H1 params are generated.    |
 | `users`       | `[]InboundUser`  | No       | Client peers. Each `{name}` becomes a peer with its own keypair; cross-server outbounds provision additional peers. |
 
 Each declared user is provisioned as a WireGuard peer on the server endpoint. The server's `amnezia` block carries the shared obfuscation parameters (Jc/Jmin/Jmax/S1-S4/H1-H4); the client-only I1-I5 parameters are generated on each client endpoint — see [AmneziaWG (cross-server)](#amneziawg-cross-server).
 
 ### AmneziaConfig
 
-User-facing AmneziaWG preferences. Only `protocol`, `preset`, and `mtu` are set in `cheburbox.json`; the raw obfuscation parameters (Jc/Jmin/Jmax/S1-S4/H1-H4 on the server, plus client-only I1-I5) are produced by the bundled `amnezigo` library and persisted in `config.json` so they stay stable across runs.
+User-facing AmneziaWG preferences. Only `protocol`, `preset`, `version`, and `mtu` are set in `cheburbox.json`; the raw obfuscation parameters (Jc/Jmin/Jmax/S1-S4/H1-H4 on the server, plus the AWG 3.x header-protection key and transport ranges, plus client-only I1-I5) are produced by the bundled `amnezigo` library and persisted in `config.json` so they stay stable across runs.
 
 | Field      | Type     | Default   | Notes                                                                                       |
 | ---------- | -------- | --------- | ------------------------------------------------------------------------------------------- |
 | `protocol` | `string` | `quic`    | I1-I5 transport-fingerprint template. One of `quic`, `dns`, `dtls`, `stun`, `sip`, `rtp`, `random`. `random` picks one of the six templates per client. |
 | `preset`   | `string` | _(empty)_ | Named bundle of shared params (Jc/Jmin/Jmax/S1-S4/H1-H4) tuned for a network profile. Empty → fully random params per server (the default). One of the preset names below. |
+| `version`  | `string` | _(empty ≡ `"2.0"`)_ | AmneziaWG generation: `""`/`"2.0"`/`"3.0"`/`"3.1"`. Empty means 2.0, so existing servers keep emitting the exact 2.0 key set. `"3.0"`/`"3.1"` add AWG 3.x header protection to that server's block (see below). |
 | `mtu`      | `int`    | `1280`    | Transport MTU. Overrides the inbound-level `mtu` when set.                                  |
+
+> **AWG 3.x (`version`).** Setting `version` to `"3.0"` or `"3.1"` enables AmneziaWG 3.x transport protection: a generated header-protection key (32 random bytes, base64), S-prefixes at or above the header-protection floor (12), and the six transport ranges (`content_padding_addition` plus five timers; defaults `2-10`, `120-180`, `5-8`, `180-240`, `8-12`, `16-20`). With a preset, the preset's `ContentPadding` is kept verbatim and its H1-H4 ranges are reused; without a preset, the H1-H4 ranges collapse to the standard `1-4` (the message type is encrypted, so type-id avoidance no longer applies). Presets target 3.1 upstream, but on a 2.0 server only their Jc/Jmin/Jmax/S1-S4/H1-H4 are used — the 3.1 additions are dropped. The 3.1 flags (`RandomTrailers`/`DisableCookies`) are never emitted: sing-box-extended cannot express them, so managed networks always run with both off. Deploying a 3.x server requires a sing-box-extended runtime ≥ 2.6.5 and a 3.x-capable AmneziaVPN app on clients. Changing `version` (in either direction) regenerates that server's amnezia block on the next `generate`; the endpoint private key is unaffected.
 
 #### Protocols
 

@@ -904,6 +904,67 @@ func TestCheckAmneziaWGInboundUnknownPreset(t *testing.T) {
 	}
 }
 
+// TestCheckAmneziaWGInboundValidVersions asserts every accepted version value
+// (including the empty default) produces zero errors.
+func TestCheckAmneziaWGInboundValidVersions(t *testing.T) {
+	t.Parallel()
+
+	for _, version := range []string{"", "2.0", "3.0", "3.1"} {
+		t.Run("version_"+version, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.Config{
+				Inbounds: []config.Inbound{
+					{
+						Type:       generate.TypeAmneziaWG,
+						Tag:        "awg-in",
+						ListenPort: 51820,
+						Address:    []string{"10.0.0.1/24"},
+						Amnezia:    &config.AmneziaConfig{Version: version},
+					},
+				},
+			}
+
+			if errs := checkAmneziaWGInbounds("srv1", cfg); len(errs) != 0 {
+				t.Fatalf("expected 0 errors for version %q, got %d: %v", version, len(errs), errs)
+			}
+		})
+	}
+}
+
+// TestCheckAmneziaWGInboundInvalidVersion asserts an unsupported version value
+// produces exactly one error that mentions "invalid amnezia version".
+func TestCheckAmneziaWGInboundInvalidVersion(t *testing.T) {
+	t.Parallel()
+
+	for _, version := range []string{"4.0", "3"} {
+		t.Run("version_"+version, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.Config{
+				Inbounds: []config.Inbound{
+					{
+						Type:       generate.TypeAmneziaWG,
+						Tag:        "awg-in",
+						ListenPort: 51820,
+						Address:    []string{"10.0.0.1/24"},
+						Amnezia:    &config.AmneziaConfig{Version: version},
+					},
+				},
+			}
+
+			errs := checkAmneziaWGInbounds("srv1", cfg)
+			if len(errs) != 1 {
+				t.Fatalf("expected 1 error for version %q, got %d: %v", version, len(errs), errs)
+			}
+
+			if !strings.Contains(errs[0].Error(), "invalid amnezia version") {
+				t.Errorf("error should mention invalid amnezia version, got: %v", errs[0])
+			}
+		})
+	}
+}
+
 func TestCheckAmneziaWGOutboundValid(t *testing.T) {
 	t.Parallel()
 

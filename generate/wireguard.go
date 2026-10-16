@@ -32,14 +32,48 @@ const (
 // pathological /8 subnet cannot stall generation.
 const maxPeerIPScan = 1 << 16
 
+// headerProtectionNonceFloor is the smallest S-prefix accepted by AWG 3.x
+// header protection: the ChaCha20 header-cipher nonce is the first S bytes of
+// the packet, so the device refuses S < 12 whenever header protection is on
+// (amnezigo generator.go headerProtectionNonceSize).
+const headerProtectionNonceFloor = 12
+
+// AWG 3.x transport-protection defaults mirrored from the amnezigo pipeline
+// (pipeline.go resolveObfuscation): the values that flow emits when a manifest
+// leaves the corresponding field unset.
+//
+//nolint:mnd // protocol defaults — the numeric literals are the domain values.
+var (
+	defaultAmneziaContentPadding       = amnezigo.U16Range{Min: 2, Max: 10}
+	defaultAmneziaRekeyAfterTime       = amnezigo.U16Range{Min: 120, Max: 180}
+	defaultAmneziaRekeyTimeout         = amnezigo.U16Range{Min: 5, Max: 8}
+	defaultAmneziaRejectAfterTime      = amnezigo.U16Range{Min: 180, Max: 240}
+	defaultAmneziaKeepaliveTimeout     = amnezigo.U16Range{Min: 8, Max: 12}
+	defaultAmneziaMaxHandshakeAttempts = amnezigo.U16Range{Min: 16, Max: 20}
+)
+
 // toRangeUint32 maps an amnezigo HeaderRange to a sing-box badoption range.
 func toRangeUint32(h amnezigo.HeaderRange) *badoption.Range[uint32] {
 	return &badoption.Range[uint32]{From: h.Min, To: h.Max}
 }
 
+// toRangeFromU16 maps an amnezigo U16Range to a sing-box badoption range. The
+// zero range means the parameter is unset/disabled, so it maps to nil and the
+// JSON key is omitted (mirroring the amnezigo writer, which skips zero ranges).
+func toRangeFromU16(r amnezigo.U16Range) *badoption.Range[uint32] {
+	if r.IsZero() {
+		return nil
+	}
+	return &badoption.Range[uint32]{From: uint32(r.Min), To: uint32(r.Max)}
+}
+
 // toAmneziaShared maps amnezigo server-side obfuscation params to a sing-box
 // WireGuardAmnezia block. Shared params (Jc/Jmin/Jmax/S1-S4/H1-H4) must be
-// identical on server and client; I1-I5 are client-only and omitted here.
+// identical on server and client; I1-I5 are client-only and omitted here. The
+// AWG 3.x fields (header protection key and the six transport ranges) map when
+// the target version sets them. RandomTrailers/DisableCookies are deliberately
+// NOT mapped: option.WireGuardAmnezia has no such fields — sing-box-extended
+// cannot express the 3.1 flags, so cheburbox pins them off on every side.
 func toAmneziaShared(s amnezigo.ServerObfuscationConfig) option.WireGuardAmnezia {
 	return option.WireGuardAmnezia{
 		JC:   s.Jc,
@@ -53,6 +87,14 @@ func toAmneziaShared(s amnezigo.ServerObfuscationConfig) option.WireGuardAmnezia
 		H2:   toRangeUint32(s.H2),
 		H3:   toRangeUint32(s.H3),
 		H4:   toRangeUint32(s.H4),
+
+		HeaderProtectionKey:    s.HeaderProtectionKey,
+		ContentPaddingAddition: toRangeFromU16(s.ContentPadding),
+		RekeyAfterTime:         toRangeFromU16(s.RekeyAfterTime),
+		RekeyTimeout:           toRangeFromU16(s.RekeyTimeout),
+		RejectAfterTime:        toRangeFromU16(s.RejectAfterTime),
+		KeepaliveTimeout:       toRangeFromU16(s.KeepaliveTimeout),
+		MaxHandshakeAttempts:   toRangeFromU16(s.MaxHandshakeAttempts),
 	}
 }
 
@@ -65,20 +107,26 @@ func cloneRangeUint32(r *badoption.Range[uint32]) *badoption.Range[uint32] {
 	return &c
 }
 
-// cloneWGAmnezia returns a deep copy of a WireGuardAmnezia block. The H1-H4
-// pointer fields are cloned individually so persisted/state copies do not alias
-// the original.
+// cloneWGAmnezia returns a deep copy of a WireGuardAmnezia block. The pointer
+// fields (H1-H4 and the six AWG 3.x ranges) are cloned individually so
+// persisted/state copies do not alias the original.
 func cloneWGAmnezia(a option.WireGuardAmnezia) option.WireGuardAmnezia {
 	clone := a
 	clone.H1 = cloneRangeUint32(a.H1)
 	clone.H2 = cloneRangeUint32(a.H2)
 	clone.H3 = cloneRangeUint32(a.H3)
 	clone.H4 = cloneRangeUint32(a.H4)
+	clone.ContentPaddingAddition = cloneRangeUint32(a.ContentPaddingAddition)
+	clone.RekeyAfterTime = cloneRangeUint32(a.RekeyAfterTime)
+	clone.RekeyTimeout = cloneRangeUint32(a.RekeyTimeout)
+	clone.RejectAfterTime = cloneRangeUint32(a.RejectAfterTime)
+	clone.KeepaliveTimeout = cloneRangeUint32(a.KeepaliveTimeout)
+	clone.MaxHandshakeAttempts = cloneRangeUint32(a.MaxHandshakeAttempts)
 	return clone
 }
 
 // generateAmneziaShared generates a fresh set of shared AmneziaWG obfuscation
-// parameters (Jc/Jmin/Jmax/S1-S4/H1-H4) from amnezigo building blocks.
+// parameters for the requested AWG version from amnezigo building blocks.
 //
 // amnezigo.GenerateServerConfig and GenerateConfig take s1 and jc as LITERAL
 // arguments: passing 0 yields literal S1=0 and Jc=0, not randomised values
@@ -89,48 +137,135 @@ func cloneWGAmnezia(a option.WireGuardAmnezia) option.WireGuardAmnezia {
 // Jc/Jmin/Jmax avoiding the padded handshake sizes), and GenerateHeaderRanges
 // (random H1-H4), exactly as GenerateServerConfig does internally minus the
 // literal s1/jc override.
-func generateAmneziaShared() (option.WireGuardAmnezia, error) {
-	s := amnezigo.GenerateSPrefixes()
+//
+// For AWG 3.x the S-prefixes are drawn at or above the header-protection floor,
+// H1-H4 collapse to the standard 1..4 ranges (the message type is encrypted, so
+// type-id avoidance no longer applies — amnezigo pipeline.go fillMissingHeaders),
+// and the block additionally carries a fresh header-protection key plus the
+// mirrored transport-range defaults.
+func generateAmneziaShared(version amnezigo.AWGVersion) (option.WireGuardAmnezia, error) {
+	minS := 0
+	if version >= amnezigo.AWG30 {
+		minS = headerProtectionNonceFloor
+	}
+	s := amnezigo.GenerateSPrefixes(minS)
 	forbidden := amnezigo.PaddedSizes(s.S1, s.S2, s.S3, s.S4)
 	j, err := amnezigo.GenerateJunkParamsWithForbidden(forbidden)
 	if err != nil {
 		return option.WireGuardAmnezia{}, fmt.Errorf("generate amnezia junk params: %w", err)
 	}
 	h := amnezigo.GenerateHeaderRanges()
-	return toAmneziaShared(amnezigo.ServerObfuscationConfig{
-		Jc:   j.Jc,
-		Jmin: j.Jmin,
-		Jmax: j.Jmax,
-		S1:   s.S1,
-		S2:   s.S2,
-		S3:   s.S3,
-		S4:   s.S4,
-		H1:   h[0],
-		H2:   h[1],
-		H3:   h[2],
-		H4:   h[3],
-	}), nil
+	cfg := amnezigo.ServerObfuscationConfig{
+		Version: version,
+		Jc:      j.Jc,
+		Jmin:    j.Jmin,
+		Jmax:    j.Jmax,
+		S1:      s.S1,
+		S2:      s.S2,
+		S3:      s.S3,
+		S4:      s.S4,
+		H1:      h[0],
+		H2:      h[1],
+		H3:      h[2],
+		H4:      h[3],
+	}
+	if version >= amnezigo.AWG30 {
+		headers := standardAmneziaHeaderRanges()
+		cfg.H1, cfg.H2, cfg.H3, cfg.H4 = headers[0], headers[1], headers[2], headers[3]
+		cfg.HeaderProtectionKey = amnezigo.GenerateHeaderProtectionKey()
+		cfg.ContentPadding = defaultAmneziaContentPadding
+		cfg.RekeyAfterTime = defaultAmneziaRekeyAfterTime
+		cfg.RekeyTimeout = defaultAmneziaRekeyTimeout
+		cfg.RejectAfterTime = defaultAmneziaRejectAfterTime
+		cfg.KeepaliveTimeout = defaultAmneziaKeepaliveTimeout
+		cfg.MaxHandshakeAttempts = defaultAmneziaMaxHandshakeAttempts
+	}
+	return toAmneziaShared(cfg), nil
+}
+
+// standardAmneziaHeaderRanges returns the H1..H4 = 1..4 ranges recommended for
+// AWG 3.x header protection: the message type is encrypted, so the WireGuard
+// type-ids 1..4 are no longer observable (amnezigo pipeline.go
+// standardHeaderRanges).
+//
+//nolint:mnd // protocol values — 1..4 are the WireGuard message type-ids.
+func standardAmneziaHeaderRanges() [4]amnezigo.HeaderRange {
+	return [4]amnezigo.HeaderRange{{Min: 1, Max: 1}, {Min: 2, Max: 2}, {Min: 3, Max: 3}, {Min: 4, Max: 4}}
+}
+
+// amneziaVersion resolves the effective AWG version for an amnezia config.
+// Empty means "2.0" — deliberately NOT amnezigo's DefaultAWGVersion (3.1), so
+// existing servers keep emitting the exact 2.0 key set until an operator opts
+// in. Never pass "" to amnezigo.ParseAWGVersion directly: its empty value means
+// 3.1.
+func amneziaVersion(amnezia *config.AmneziaConfig) (amnezigo.AWGVersion, error) {
+	raw := "2.0"
+	if amnezia != nil && amnezia.Version != "" {
+		raw = amnezia.Version
+	}
+	version, err := amnezigo.ParseAWGVersion(raw)
+	if err != nil {
+		return 0, fmt.Errorf("resolve amnezia version: %w", err)
+	}
+	return version, nil
 }
 
 // resolveServerAmnezia returns the shared amnezia block for a server endpoint.
-// Persisted credentials win first (stable across runs). Otherwise, when preset
-// is non-empty, the block is derived from the named amnezigo preset; when preset
-// is empty, a fresh fully-random block is generated (current default behaviour).
+// A persisted block wins verbatim only when its transport-protection state
+// matches the requested version (persistedHasTP == wantTP): a 2.0 block under a
+// 3.x request (or vice versa) is regenerated for the requested version — the
+// endpoint private key persists separately and is unaffected. Otherwise, when
+// a preset is named, the block is derived from that amnezigo preset (3.x adds
+// the generated header-protection key, keeps the preset's ContentPadding
+// verbatim and applies the mirrored range defaults); with no preset, a fresh
+// fully-random block is generated for the requested version.
 func resolveServerAmnezia(
-	tag, preset string,
+	tag string,
+	amnezia *config.AmneziaConfig,
 	persisted config.PersistedCredentials,
 ) (option.WireGuardAmnezia, error) {
+	version, err := amneziaVersion(amnezia)
+	if err != nil {
+		return option.WireGuardAmnezia{}, err
+	}
+	wantTP := version >= amnezigo.AWG30
+
 	if ep, ok := persisted.WireGuardEndpoints[tag]; ok && ep.Amnezia != nil {
-		return cloneWGAmnezia(*ep.Amnezia), nil
+		persistedHasTP := ep.Amnezia.HeaderProtectionKey != ""
+		if persistedHasTP == wantTP {
+			return cloneWGAmnezia(*ep.Amnezia), nil
+		}
+	}
+
+	preset := ""
+	if amnezia != nil {
+		preset = amnezia.Preset
 	}
 	if preset != "" {
 		p, err := amnezigo.GetPreset(preset)
 		if err != nil {
 			return option.WireGuardAmnezia{}, fmt.Errorf("resolve amnezia preset %q: %w", preset, err)
 		}
-		return toAmneziaShared(p.ToServerObfuscation()), nil
+		s := p.ToServerObfuscation()
+		s.Version = version
+		if wantTP {
+			s.HeaderProtectionKey = amnezigo.GenerateHeaderProtectionKey()
+			s.RekeyAfterTime = defaultAmneziaRekeyAfterTime
+			s.RekeyTimeout = defaultAmneziaRekeyTimeout
+			s.RejectAfterTime = defaultAmneziaRejectAfterTime
+			s.KeepaliveTimeout = defaultAmneziaKeepaliveTimeout
+			s.MaxHandshakeAttempts = defaultAmneziaMaxHandshakeAttempts
+		} else {
+			// Presets target 3.1; a 2.0 request must emit exactly the 2.0 key
+			// set, so the 3.x fields the preset carries are cleared.
+			s.ContentPadding = amnezigo.U16Range{}
+			s.HeaderProtectionKey = ""
+		}
+		s.RandomTrailers = false
+		s.DisableCookies = false
+		return toAmneziaShared(s), nil
 	}
-	return generateAmneziaShared()
+	return generateAmneziaShared(version)
 }
 
 // resolveWGPrivateKey returns the server endpoint's private/public key pair.
@@ -297,9 +432,9 @@ func buildServerWGPeers(peers map[string]AmneziaWGPeerCreds) []option.WireGuardP
 }
 
 // buildClientAmnezia composes the client amnezia block: the shared params
-// (Jc/Jmin/Jmax/S1-S4/H1-H4) are copied verbatim from the server so both ends
-// match, and client-only I1-I5 are freshly generated via amnezigo.GenerateCPS
-// seeded with the server's S1.
+// (Jc/Jmin/Jmax/S1-S4/H1-H4 and the AWG 3.x transport-protection fields) are
+// copied verbatim from the server so both ends match, and client-only I1-I5 are
+// freshly generated via amnezigo.GenerateCPS seeded with the server's S1.
 func buildClientAmnezia(shared option.WireGuardAmnezia, protocol string, mtu int) option.WireGuardAmnezia {
 	i1, i2, i3, i4, i5 := amnezigo.GenerateCPS(protocol, mtu, shared.S1, 0)
 	return option.WireGuardAmnezia{
@@ -314,11 +449,20 @@ func buildClientAmnezia(shared option.WireGuardAmnezia, protocol string, mtu int
 		H2:   cloneRangeUint32(shared.H2),
 		H3:   cloneRangeUint32(shared.H3),
 		H4:   cloneRangeUint32(shared.H4),
-		I1:   i1,
-		I2:   i2,
-		I3:   i3,
-		I4:   i4,
-		I5:   i5,
+
+		HeaderProtectionKey:    shared.HeaderProtectionKey,
+		ContentPaddingAddition: cloneRangeUint32(shared.ContentPaddingAddition),
+		RekeyAfterTime:         cloneRangeUint32(shared.RekeyAfterTime),
+		RekeyTimeout:           cloneRangeUint32(shared.RekeyTimeout),
+		RejectAfterTime:        cloneRangeUint32(shared.RejectAfterTime),
+		KeepaliveTimeout:       cloneRangeUint32(shared.KeepaliveTimeout),
+		MaxHandshakeAttempts:   cloneRangeUint32(shared.MaxHandshakeAttempts),
+
+		I1: i1,
+		I2: i2,
+		I3: i3,
+		I4: i4,
+		I5: i5,
 	}
 }
 
@@ -385,11 +529,7 @@ func BuildAmneziaWGServerEndpoint(
 	} else {
 		serverPriv, serverPub = resolveWGPrivateKey(in.Tag, persisted)
 
-		preset := ""
-		if in.Amnezia != nil {
-			preset = in.Amnezia.Preset
-		}
-		shared, err = resolveServerAmnezia(in.Tag, preset, persisted)
+		shared, err = resolveServerAmnezia(in.Tag, in.Amnezia, persisted)
 		if err != nil {
 			return nil, fmt.Errorf("resolve amnezia params: %w", err)
 		}

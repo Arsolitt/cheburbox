@@ -173,8 +173,9 @@ func extractWireGuardCredentials(tag string, opts *option.WireGuardEndpointOptio
 }
 
 // cloneAmnezia returns a deep copy of amnezia so persisted credentials do not
-// share pointer state with the parsed options. The H1-H4 fields are pointers
-// and are cloned individually; all other fields are value types.
+// share pointer state with the parsed options. The pointer fields (H1-H4 and
+// the six AWG 3.x ranges) are cloned individually; all other fields are value
+// types.
 func cloneAmnezia(amnezia *option.WireGuardAmnezia) *option.WireGuardAmnezia {
 	if amnezia == nil {
 		return nil
@@ -184,6 +185,12 @@ func cloneAmnezia(amnezia *option.WireGuardAmnezia) *option.WireGuardAmnezia {
 	clone.H2 = cloneRangeUint32(amnezia.H2)
 	clone.H3 = cloneRangeUint32(amnezia.H3)
 	clone.H4 = cloneRangeUint32(amnezia.H4)
+	clone.ContentPaddingAddition = cloneRangeUint32(amnezia.ContentPaddingAddition)
+	clone.RekeyAfterTime = cloneRangeUint32(amnezia.RekeyAfterTime)
+	clone.RekeyTimeout = cloneRangeUint32(amnezia.RekeyTimeout)
+	clone.RejectAfterTime = cloneRangeUint32(amnezia.RejectAfterTime)
+	clone.KeepaliveTimeout = cloneRangeUint32(amnezia.KeepaliveTimeout)
+	clone.MaxHandshakeAttempts = cloneRangeUint32(amnezia.MaxHandshakeAttempts)
 	return &clone
 }
 

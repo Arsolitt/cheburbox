@@ -73,14 +73,14 @@ func TestConvertRouteWithRules(t *testing.T) {
 	if len(opts.RuleSet) != 2 {
 		t.Fatalf("RuleSet count = %d, want 2 (1 remote + 1 custom)", len(opts.RuleSet))
 	}
-	if opts.RuleSet[0].Tag != "geoip" {
-		t.Errorf("RuleSet[0].Tag = %q, want %q", opts.RuleSet[0].Tag, "geoip")
+	if len(opts.RuleSet[0].Tag) != 1 || opts.RuleSet[0].Tag[0] != "geoip" {
+		t.Errorf("RuleSet[0].Tag = %v, want [geoip]", opts.RuleSet[0].Tag)
 	}
 	if opts.RuleSet[0].Type != "remote" {
 		t.Errorf("RuleSet[0].Type = %q, want %q", opts.RuleSet[0].Type, "remote")
 	}
-	if opts.RuleSet[1].Tag != "extension" {
-		t.Errorf("RuleSet[1].Tag = %q, want %q", opts.RuleSet[1].Tag, "extension")
+	if len(opts.RuleSet[1].Tag) != 1 || opts.RuleSet[1].Tag[0] != "extension" {
+		t.Errorf("RuleSet[1].Tag = %v, want [extension]", opts.RuleSet[1].Tag)
 	}
 	if opts.RuleSet[1].Type != "local" {
 		t.Errorf("RuleSet[1].Type = %q, want %q", opts.RuleSet[1].Type, "local")

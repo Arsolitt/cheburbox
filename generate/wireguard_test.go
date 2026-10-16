@@ -3,9 +3,11 @@ package generate
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/sagernet/sing-box/include"
 	"github.com/sagernet/sing-box/option"
 	singjson "github.com/sagernet/sing/common/json"
+	"github.com/sagernet/sing/common/json/badoption"
 
 	"github.com/Arsolitt/cheburbox/config"
 )
@@ -286,70 +289,109 @@ func TestAmneziaWGPeerOrderDeterministic(t *testing.T) {
 }
 
 // TestAmneziaWGPresetProducesPresetParams proves that a named preset yields
-// deterministic shared amnezia params (Jc/Jmin/Jmax/S1-S4/H1-H4) matching
-// amnezigo.GetPreset(name).ToServerObfuscation(), rather than a random bundle.
-// It also asserts the server block omits client-only I1-I5 and that the
-// generated config constructs a valid sing-box instance.
+// deterministic shared amnezia params matching
+// amnezigo.GetPreset(name).ToServerObfuscation(): the default (2.0) case maps
+// Jc/Jmin/Jmax/S1-S4/H1-H4 only, the 3.1 case additionally maps the preset's
+// ContentPadding, generates a header-protection key and applies the mirrored
+// range defaults. Both cases omit client-only I1-I5 and construct a valid
+// sing-box instance.
 func TestAmneziaWGPresetProducesPresetParams(t *testing.T) {
 	t.Parallel()
 
-	projectRoot := t.TempDir()
-
 	const presetName = "home-balanced"
 
-	setupTestServer(t, projectRoot, "awg-server", config.Config{
-		Version:  1,
-		Endpoint: "203.0.113.10",
-		DNS: config.DNS{
-			Final:   new("dns-local"),
-			Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
-		},
-		Inbounds: []config.Inbound{
-			{
-				Tag:        "awg-in",
-				Type:       TypeAmneziaWG,
-				ListenPort: 51820,
-				Address:    []string{"10.7.0.1/24"},
-				Amnezia:    &config.AmneziaConfig{Preset: presetName, Protocol: "quic"},
-			},
-		},
-		Outbounds: []config.Outbound{
-			{Type: TypeDirect, Tag: "direct"},
-		},
-		Route: &config.Route{Final: "direct", AutoDetectInterface: true},
-	})
-
-	results, err := GenerateAll(projectRoot, "lib", GenerateConfig{})
-	if err != nil {
-		t.Fatalf("GenerateAll: %v", err)
-	}
-
-	serverResult := findResultByName(results, "awg-server")
-	if serverResult == nil {
-		t.Fatal("awg-server result not found")
-	}
-	serverConfig := findFile(serverResult.Files, "config.json")
-	if serverConfig == nil {
-		t.Fatal("awg-server config.json not found")
-	}
-
-	opts := parseBoxOptions(t, serverConfig.Content)
-	ep := findWGEndpoint(opts, "awg-in")
-	if ep == nil {
-		t.Fatal("awg-server has no wireguard endpoint tagged awg-in")
-	}
-	if ep.Amnezia == nil {
-		t.Fatal("awg-server endpoint has no amnezia block")
-	}
-
-	// The endpoint's amnezia block must carry the preset's exact shared params.
 	preset, err := amnezigo.GetPreset(presetName)
 	if err != nil {
 		t.Fatalf("GetPreset(%q): %v", presetName, err)
 	}
 	expected := preset.ToServerObfuscation()
 
-	// Scalar fields (sing-box WireGuardAmnezia uses .JC/.JMin/.JMax/.S1-.S4).
+	buildServer := func(t *testing.T, version string) ([]byte, *option.WireGuardEndpointOptions) {
+		t.Helper()
+
+		projectRoot := t.TempDir()
+
+		setupTestServer(t, projectRoot, "awg-server", config.Config{
+			Version:  1,
+			Endpoint: "203.0.113.10",
+			DNS: config.DNS{
+				Final:   new("dns-local"),
+				Servers: []config.DNSServer{{Type: "local", Tag: "dns-local"}},
+			},
+			Inbounds: []config.Inbound{
+				{
+					Tag:        "awg-in",
+					Type:       TypeAmneziaWG,
+					ListenPort: 51820,
+					Address:    []string{"10.7.0.1/24"},
+					Amnezia:    &config.AmneziaConfig{Preset: presetName, Protocol: "quic", Version: version},
+				},
+			},
+			Outbounds: []config.Outbound{
+				{Type: TypeDirect, Tag: "direct"},
+			},
+			Route: &config.Route{Final: "direct", AutoDetectInterface: true},
+		})
+
+		results, err := GenerateAll(projectRoot, "lib", GenerateConfig{})
+		if err != nil {
+			t.Fatalf("GenerateAll: %v", err)
+		}
+
+		serverResult := findResultByName(results, "awg-server")
+		if serverResult == nil {
+			t.Fatal("awg-server result not found")
+		}
+		serverConfig := findFile(serverResult.Files, "config.json")
+		if serverConfig == nil {
+			t.Fatal("awg-server config.json not found")
+		}
+
+		opts := parseBoxOptions(t, serverConfig.Content)
+		ep := findWGEndpoint(opts, "awg-in")
+		if ep == nil {
+			t.Fatal("awg-server has no wireguard endpoint tagged awg-in")
+		}
+		if ep.Amnezia == nil {
+			t.Fatal("awg-server endpoint has no amnezia block")
+		}
+		return serverConfig.Content, ep
+	}
+
+	t.Run("default_version_2_0", func(t *testing.T) {
+		t.Parallel()
+		content, ep := buildServer(t, "")
+		assertPresetScalars20(t, ep, expected)
+
+		// Generated config must be a valid sing-box instance.
+		t.Run("box_check", func(t *testing.T) {
+			t.Parallel()
+			singBoxValidate(t, content)
+		})
+	})
+
+	t.Run("version_3_1", func(t *testing.T) {
+		t.Parallel()
+		content, ep := buildServer(t, "3.1")
+		assertPresetTransport31(t, ep, preset)
+
+		// Generated config must be a valid sing-box instance.
+		t.Run("box_check", func(t *testing.T) {
+			t.Parallel()
+			singBoxValidate(t, content)
+		})
+	})
+}
+
+// assertPresetScalars20 asserts a default-version (2.0) preset block: the
+// preset scalars and H ranges map and none of the 3.x keys appear.
+func assertPresetScalars20(
+	t *testing.T,
+	ep *option.WireGuardEndpointOptions,
+	expected amnezigo.ServerObfuscationConfig,
+) {
+	t.Helper()
+
 	if ep.Amnezia.JC != expected.Jc {
 		t.Errorf("amnezia JC = %d, want preset Jc %d", ep.Amnezia.JC, expected.Jc)
 	}
@@ -371,16 +413,219 @@ func TestAmneziaWGPresetProducesPresetParams(t *testing.T) {
 	if ep.Amnezia.S4 != expected.S4 {
 		t.Errorf("amnezia S4 = %d, want preset S4 %d", ep.Amnezia.S4, expected.S4)
 	}
+	assertAmneziaHeaderRange(t, "amnezia H1", ep.Amnezia.H1, expected.H1)
+	assertAmneziaHeaderRange(t, "amnezia H2", ep.Amnezia.H2, expected.H2)
+	assertAmneziaHeaderRange(t, "amnezia H3", ep.Amnezia.H3, expected.H3)
+	assertAmneziaHeaderRange(t, "amnezia H4", ep.Amnezia.H4, expected.H4)
+
+	// A 2.0 block must carry none of the 3.x keys.
+	if ep.Amnezia.HeaderProtectionKey != "" {
+		t.Errorf("2.0 block must not carry a header protection key, got %q", ep.Amnezia.HeaderProtectionKey)
+	}
+	for name, r := range map[string]*badoption.Range[uint32]{
+		"ContentPaddingAddition": ep.Amnezia.ContentPaddingAddition,
+		"RekeyAfterTime":         ep.Amnezia.RekeyAfterTime,
+		"RekeyTimeout":           ep.Amnezia.RekeyTimeout,
+		"RejectAfterTime":        ep.Amnezia.RejectAfterTime,
+		"KeepaliveTimeout":       ep.Amnezia.KeepaliveTimeout,
+		"MaxHandshakeAttempts":   ep.Amnezia.MaxHandshakeAttempts,
+	} {
+		if r != nil {
+			t.Errorf("2.0 block must not carry %s, got %v", name, r)
+		}
+	}
 
 	// Server amnezia must NOT carry I1-I5 (client-only).
 	if ep.Amnezia.I1 != "" {
 		t.Errorf("server amnezia must not carry I1, got %q", ep.Amnezia.I1)
 	}
+}
 
-	// Generated config must be a valid sing-box instance.
-	t.Run("box_check", func(t *testing.T) {
+// assertPresetTransport31 asserts a 3.1 preset block: the preset's
+// ContentPadding maps verbatim, the header-protection key is 44-char base64 of
+// 32 bytes, the five timer ranges fall back to the mirrored defaults, and every
+// S-prefix meets the nonce floor.
+func assertPresetTransport31(t *testing.T, ep *option.WireGuardEndpointOptions, preset amnezigo.Preset) {
+	t.Helper()
+
+	if ep.Amnezia.ContentPaddingAddition == nil ||
+		ep.Amnezia.ContentPaddingAddition.From != uint32(preset.ContentPadding.Min) ||
+		ep.Amnezia.ContentPaddingAddition.To != uint32(preset.ContentPadding.Max) {
+		t.Errorf(
+			"ContentPaddingAddition = %v, want %d-%d",
+			ep.Amnezia.ContentPaddingAddition,
+			preset.ContentPadding.Min,
+			preset.ContentPadding.Max,
+		)
+	}
+
+	hpk := ep.Amnezia.HeaderProtectionKey
+	if len(hpk) != 44 {
+		t.Errorf("header protection key length = %d, want 44", len(hpk))
+	}
+	if raw, err := base64.StdEncoding.DecodeString(hpk); err != nil || len(raw) != 32 {
+		t.Errorf("header protection key must be base64 of 32 bytes, got %q (err %v)", hpk, err)
+	}
+
+	for name, check := range map[string]struct {
+		got      *badoption.Range[uint32]
+		from, to uint32
+	}{
+		"RekeyAfterTime":       {ep.Amnezia.RekeyAfterTime, 120, 180},
+		"RekeyTimeout":         {ep.Amnezia.RekeyTimeout, 5, 8},
+		"RejectAfterTime":      {ep.Amnezia.RejectAfterTime, 180, 240},
+		"KeepaliveTimeout":     {ep.Amnezia.KeepaliveTimeout, 8, 12},
+		"MaxHandshakeAttempts": {ep.Amnezia.MaxHandshakeAttempts, 16, 20},
+	} {
+		if check.got == nil || check.got.From != check.from || check.got.To != check.to {
+			t.Errorf("%s = %v, want %d-%d", name, check.got, check.from, check.to)
+		}
+	}
+
+	for i, s := range [4]int{ep.Amnezia.S1, ep.Amnezia.S2, ep.Amnezia.S3, ep.Amnezia.S4} {
+		if s < 12 {
+			t.Errorf("S%d = %d, want >= 12 under header protection", i+1, s)
+		}
+	}
+}
+
+// assertAmneziaHeaderRange asserts one header range pointer against an amnezigo
+// HeaderRange.
+func assertAmneziaHeaderRange(t *testing.T, name string, got *badoption.Range[uint32], want amnezigo.HeaderRange) {
+	t.Helper()
+	if got == nil || got.From != want.Min || got.To != want.Max {
+		t.Errorf("%s = %v, want %d-%d", name, got, want.Min, want.Max)
+	}
+}
+
+// TestResolveServerAmneziaVersionLifecycle covers the persisted-block version
+// gate: a persisted block wins verbatim only when its transport-protection
+// state matches the requested version (persistedHasTP == wantTP); on a
+// mismatch the whole block is regenerated for the requested version.
+func TestResolveServerAmneziaVersionLifecycle(t *testing.T) {
+	t.Parallel()
+
+	const tag = "awg-in"
+
+	persistedWith := func(block *option.WireGuardAmnezia) config.PersistedCredentials {
+		return config.PersistedCredentials{
+			WireGuardEndpoints: map[string]config.WireGuardEndpointCreds{
+				tag: {Amnezia: block},
+			},
+		}
+	}
+
+	block20 := &option.WireGuardAmnezia{
+		JC:   7,
+		JMin: 300,
+		JMax: 1100,
+		S1:   30,
+		S2:   35,
+		S3:   20,
+		S4:   12,
+		H1:   &badoption.Range[uint32]{From: 50, To: 50000000},
+	}
+	block3x := &option.WireGuardAmnezia{
+		JC:                  7,
+		JMin:                300,
+		JMax:                1100,
+		S1:                  30,
+		S2:                  35,
+		S3:                  20,
+		S4:                  12,
+		H1:                  &badoption.Range[uint32]{From: 1, To: 1},
+		HeaderProtectionKey: "c2VudGluZWxrZXk=",
+	}
+
+	assertNoTransportRanges := func(t *testing.T, block option.WireGuardAmnezia) {
+		t.Helper()
+		if block.HeaderProtectionKey != "" {
+			t.Errorf("block must not carry a header protection key, got %q", block.HeaderProtectionKey)
+		}
+		for name, r := range map[string]*badoption.Range[uint32]{
+			"ContentPaddingAddition": block.ContentPaddingAddition,
+			"RekeyAfterTime":         block.RekeyAfterTime,
+			"RekeyTimeout":           block.RekeyTimeout,
+			"RejectAfterTime":        block.RejectAfterTime,
+			"KeepaliveTimeout":       block.KeepaliveTimeout,
+			"MaxHandshakeAttempts":   block.MaxHandshakeAttempts,
+		} {
+			if r != nil {
+				t.Errorf("block must not carry %s, got %v", name, r)
+			}
+		}
+	}
+
+	t.Run("fresh_default_has_no_3x_fields", func(t *testing.T) {
 		t.Parallel()
-		singBoxValidate(t, serverConfig.Content)
+		block, err := resolveServerAmnezia(tag, &config.AmneziaConfig{}, config.PersistedCredentials{})
+		if err != nil {
+			t.Fatalf("resolveServerAmnezia: %v", err)
+		}
+		assertNoTransportRanges(t, block)
+		if block.H1 == nil || block.H4 == nil {
+			t.Error("fresh 2.0 block must carry random H1-H4 ranges")
+		}
+	})
+
+	t.Run("persisted_2_0_default_verbatim", func(t *testing.T) {
+		t.Parallel()
+		block, err := resolveServerAmnezia(tag, &config.AmneziaConfig{}, persistedWith(block20))
+		if err != nil {
+			t.Fatalf("resolveServerAmnezia: %v", err)
+		}
+		if !reflect.DeepEqual(block, *block20) {
+			t.Errorf("block = %+v, want verbatim reuse of %+v", block, *block20)
+		}
+	})
+
+	t.Run("persisted_2_0_request_3_1_regenerates", func(t *testing.T) {
+		t.Parallel()
+		block, err := resolveServerAmnezia(
+			tag, &config.AmneziaConfig{Version: "3.1"}, persistedWith(block20),
+		)
+		if err != nil {
+			t.Fatalf("resolveServerAmnezia: %v", err)
+		}
+		if block.HeaderProtectionKey == "" {
+			t.Error("regenerated 3.1 block must carry a header protection key")
+		}
+		for i, s := range [4]int{block.S1, block.S2, block.S3, block.S4} {
+			if s < 12 {
+				t.Errorf("S%d = %d, want >= 12 under header protection", i+1, s)
+			}
+		}
+		// The random 3.x path collapses H1-H4 to the standard 1..4 ranges.
+		for i, got := range [4]*badoption.Range[uint32]{block.H1, block.H2, block.H3, block.H4} {
+			if got == nil || got.From != uint32(i+1) || got.To != uint32(i+1) {
+				t.Errorf("H%d = %v, want %d-%d", i+1, got, i+1, i+1)
+			}
+		}
+	})
+
+	t.Run("persisted_3_x_request_3_1_verbatim", func(t *testing.T) {
+		t.Parallel()
+		block, err := resolveServerAmnezia(
+			tag, &config.AmneziaConfig{Version: "3.1"}, persistedWith(block3x),
+		)
+		if err != nil {
+			t.Fatalf("resolveServerAmnezia: %v", err)
+		}
+		if !reflect.DeepEqual(block, *block3x) {
+			t.Errorf("block = %+v, want verbatim reuse of %+v", block, *block3x)
+		}
+	})
+
+	t.Run("persisted_3_x_default_regenerates_2_0", func(t *testing.T) {
+		t.Parallel()
+		block, err := resolveServerAmnezia(tag, &config.AmneziaConfig{}, persistedWith(block3x))
+		if err != nil {
+			t.Fatalf("resolveServerAmnezia: %v", err)
+		}
+		assertNoTransportRanges(t, block)
+		if block.HeaderProtectionKey == block3x.HeaderProtectionKey {
+			t.Error("regenerated 2.0 block must not reuse the persisted 3.x key")
+		}
 	})
 }
 

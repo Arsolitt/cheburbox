@@ -45,7 +45,7 @@ linked as a Go library.
   itself would — no external `sing-box` binary required.
 - **Share links for clients.** `cheburbox links` exports VLESS and Hysteria2 connection links in `uri` or `json` form
   from the generated configs.
-- **AmneziaWG.** WireGuard hardened with Amnezia 2.0 transport obfuscation; emitted as sing-box
+- **AmneziaWG.** WireGuard hardened with Amnezia 2.0–3.1 transport obfuscation (AWG 3.x header protection is a per-server opt-in via `amnezia.version`); emitted as sing-box
   `endpoints[]` with persisted key material and cross-server peer provisioning.
 - **Local rule-set compilation.** `cheburbox rule-set compile` turns JSON rule-set sources into binary `.srs` files,
   either standalone or automatically as part of `generate`.
