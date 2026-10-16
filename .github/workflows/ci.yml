@@ -46,10 +46,21 @@ jobs:
       - run: go test -race -tags "$(make -s print-tags)" ./...
 
   # Release targets are cross-compiled once per push to main; PRs skip this to
-  # stay fast. The matrix mirrors .goreleaser.yaml builds[0].goos/goarch.
+  # stay fast. Each architecture compiles on its own runner: recompiling the
+  # whole dependency graph for arm64 on the amd64 runner would dominate the
+  # run, so the arm targets use the free arm64 runner. The matrix mirrors
+  # .goreleaser.yaml builds[0].goos/goarch.
   cross_build:
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            targets: linux/amd64 darwin/amd64
+          - runner: ubuntu-24.04-arm
+            targets: linux/arm64 darwin/arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -60,11 +71,10 @@ jobs:
         run: |
           set -eu
           TAGS="$(make -s print-tags)"
-          GOOS=linux GOARCH=amd64 go build -trimpath -tags "$TAGS" ./cmd/cheburbox
-          GOOS=linux GOARCH=arm64 go build -trimpath -tags "$TAGS" ./cmd/cheburbox
-          GOOS=darwin GOARCH=amd64 go build -trimpath -tags "$TAGS" ./cmd/cheburbox
-          GOOS=darwin GOARCH=arm64 go build -trimpath -tags "$TAGS" ./cmd/cheburbox
-          rm -f cheburbox
+          for target in ${{ matrix.targets }}; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" go build -trimpath -tags "$TAGS" ./cmd/cheburbox
+            rm -f cheburbox
+          done
 
   release_config:
     runs-on: ubuntu-latest
