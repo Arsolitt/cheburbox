@@ -13,6 +13,7 @@ import (
 
 	"github.com/Arsolitt/cheburbox/config"
 	"github.com/Arsolitt/cheburbox/generate"
+	"github.com/Arsolitt/cheburbox/internal/buildinfo"
 	"github.com/Arsolitt/cheburbox/links"
 	"github.com/Arsolitt/cheburbox/ruleset"
 	"github.com/Arsolitt/cheburbox/validate"
@@ -122,7 +123,21 @@ func NewRootCommand() *cobra.Command {
 
 	rootCmd.AddCommand(newLinksCmd(&projectRoot, &jpath))
 
+	rootCmd.AddCommand(newVersionCmd())
+
 	return rootCmd
+}
+
+func newVersionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print the cheburbox version and commit.",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			fmt.Fprintf(command.OutOrStdout(), "cheburbox %s (%s)\n", buildinfo.Version, buildinfo.Commit)
+			return nil
+		},
+	}
 }
 
 func newLinksCmd(projectRoot *string, jpath *string) *cobra.Command {
