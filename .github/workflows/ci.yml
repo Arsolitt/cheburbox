@@ -85,7 +85,11 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
+          # The check runs no Go command, so it has nothing worth caching. It is
+          # also the first job to finish: with caching enabled it would win the
+          # shared cache save race with an empty state and starve every other
+          # job of the module cache until go.mod changes.
+          cache: false
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: ${{ env.GORELEASER_VERSION }}
