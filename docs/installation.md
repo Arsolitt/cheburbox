@@ -6,6 +6,7 @@
 
 - [Requirements](#requirements)
 - [Build from source](#build-from-source)
+- [Prebuilt release binaries](#prebuilt-release-binaries)
 - [Container image (Docker)](#container-image-docker)
 - [Install sing-box](#install-sing-box)
 - [Verify the install](#verify-the-install)
@@ -76,11 +77,48 @@ $ golangci-lint run --fix
 
 ---
 
+## Prebuilt release binaries
+
+Every [tagged release](https://github.com/Arsolitt/cheburbox/releases) attaches raw, statically linked executables — there is no archive to extract:
+
+| Asset | Platform |
+| --- | --- |
+| `cheburbox-linux-amd64` | Linux x86-64 executable. |
+| `cheburbox-linux-arm64` | Linux ARM64 executable. |
+| `cheburbox-darwin-amd64` | macOS x86-64 executable (runs on Apple silicon through Rosetta 2). |
+| `cheburbox-darwin-arm64` | macOS ARM64 executable. |
+
+Each release also attaches `checksums.txt` (SHA-256 checksums for every asset) and `cheburbox-licenses_<version>.tar.gz` — the release's `LICENSE`, `NOTICE`, and third-party `licenses/` bundle.
+
+Download the assets you need, verify them, and install:
+
+```shell
+$ curl -LO https://github.com/Arsolitt/cheburbox/releases/latest/download/cheburbox-linux-amd64
+$ curl -LO https://github.com/Arsolitt/cheburbox/releases/latest/download/checksums.txt
+$ sha256sum -c --ignore-missing checksums.txt
+$ chmod +x cheburbox-linux-amd64
+$ sudo mv cheburbox-linux-amd64 /usr/local/bin/cheburbox
+```
+
+> **Note:** `--ignore-missing` keeps the check quiet about assets you did not download; `sha256sum -c checksums.txt` verifies a full download in one pass.
+
+---
+
 ## Container image (Docker)
 
 cheburbox ships as a multi-stage Docker image: the binary is compiled with `CGO_ENABLED=0` (static, no libc dependency) and runs on a distroless `nonroot` base (uid 65532, no shell). The image is a one-shot CLI — you run it with mounted volumes, it does not stay running.
 
 The examples below use `ghcr.io/arsolitt/cheburbox` (GitHub Container Registry). The image name works with any registry — only the prefix changes.
+
+### Published release image
+
+Tagged releases also publish a prebuilt image to `ghcr.io/arsolitt/cheburbox`, built by GoReleaser from `cmd/cheburbox/Dockerfile`. It covers `linux/amd64` and `linux/arm64` and ships `NOTICE`, `LICENSE`, and the bundled third-party `licenses/` under `/usr/share/doc/cheburbox/`:
+
+```shell
+$ docker run --rm ghcr.io/arsolitt/cheburbox:0.1.0 --help
+```
+
+Image tags use the release version with the leading `v` stripped (tag `v0.1.0` → `0.1.0`); `latest` is published for stable releases only — prereleases (`vX.Y.Z-rc.N`) are version-tagged only.
 
 ### Build locally
 
@@ -194,6 +232,15 @@ $ cheburbox --help
 ```
 
 You should see the top-level command summary listing the available subcommands (`generate`, `validate`, `links`, etc.).
+
+`cheburbox version` prints the build stamp carried by the binary:
+
+```shell
+$ cheburbox version
+cheburbox 0.1.0 (abc1234)
+```
+
+Release binaries carry the tag's version with the leading `v` stripped (`v0.1.0` → `0.1.0`). A `make build` or `docker build` binary reports its local stamp instead: `make build` derives it from `git describe`, so a non-tag commit can report something like `cheburbox v0.3.0-5-g81451b7-dirty (81451b7)`, while `docker build` takes `--build-arg VERSION=<version> --build-arg REVISION=<commit>` and reports the default `cheburbox dev (none)` without them.
 
 That's the only check you need. There is no `sing-box version` step — see [Install sing-box](#install-sing-box) above for why.
 

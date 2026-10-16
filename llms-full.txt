@@ -156,6 +156,8 @@ url: /installation
 
 Cheburbox is a Go CLI tool. Install it by building from source.
 
+Tagged releases also attach prebuilt binaries for linux/amd64, linux/arm64, darwin/amd64, and darwin/arm64 (raw executables with a `checksums.txt`), and a multi-arch image is published at `ghcr.io/arsolitt/cheburbox`.
+
 ## Prerequisites
 
 - **Go 1.26.4 or later** — cheburbox requires Go 1.26.4 as specified in its `go.mod` file.

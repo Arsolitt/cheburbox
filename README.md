@@ -70,6 +70,8 @@ Verify the binary runs:
 $ ./build/cheburbox --help
 ```
 
+> **No toolchain?** Every tagged [release](https://github.com/Arsolitt/cheburbox/releases) attaches raw per-platform binaries (Linux and macOS, `amd64` and `arm64`) with `checksums.txt` and the licenses tarball.
+>
 > **No clone?** Run the container image directly — `docker run --rm ghcr.io/arsolitt/cheburbox:latest --help`. See [Installation](./docs/installation.md) for all options.
 >
 > **Why not `go install`?** The `go.mod` carries `replace` directives (sing-box → the [sing-box-extended](https://github.com/shtorm-7/sing-box-extended) fork) that Go rejects for `go install pkg@version`, so that command fails. A bare `go build` without `-tags` builds, but silently skips validation for tagged protocols — `make build` is the supported path.
