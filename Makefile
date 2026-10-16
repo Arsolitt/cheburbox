@@ -33,12 +33,14 @@ TAGS        ?= with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acm
 # Pure-Go static build: no libc dependency, matches the distroless runtime image.
 CGO_ENABLED ?= 0
 GOTOOLCHAIN ?= local
-LDFLAGS     := -s -w
+VERSION     := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT      := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+LDFLAGS     := -s -w -X github.com/Arsolitt/cheburbox/internal/buildinfo.Version=$(VERSION) -X github.com/Arsolitt/cheburbox/internal/buildinfo.Commit=$(COMMIT)
 BINARY      := build/cheburbox
 PKG         := ./cmd/cheburbox
 IMAGE       ?= cheburbox
 
-.PHONY: all build install run test test-race vet check clean docker print-tags
+.PHONY: all build install run test test-race vet check notice snapshot clean docker print-tags
 
 all: build
 
@@ -78,13 +80,21 @@ check:
 	golangci-lint run --fix
 	golangci-lint run
 
+# Regenerate the third-party license notices bundled with the release.
+notice:
+	go run ./hack/noticegen
+
+# Build a local goreleaser snapshot without publishing anything.
+snapshot:
+	goreleaser release --snapshot --clean
+
 # Build the container image, passing TAGS through so the image validates the
 # same protocols as a local build (the Dockerfile default matches this TAGS).
 docker:
 	docker build --build-arg TAGS='$(TAGS)' -t $(IMAGE) .
 
 clean:
-	rm -rf build
+	rm -rf build dist
 
 # Echo the resolved tag set — handy for debugging build-vs-runtime mismatch
 # and for passing to a bare `go` invocation: go test -tags "$$(make print-tags)".

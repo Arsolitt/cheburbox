@@ -18,6 +18,11 @@ ARG TARGETARCH=amd64
 # is included or excluded.
 ARG TAGS=with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_masque,with_mtproxy,with_openvpn,with_trusttunnel,with_sudoku,with_snell
 
+# Version stamp for the binary (internal/buildinfo); the runtime stage's ARGs of
+# the same names only feed the OCI labels. Override with --build-arg.
+ARG VERSION=dev
+ARG REVISION=none
+
 WORKDIR /src
 
 # Cache downloaded modules in a dedicated layer.
@@ -27,7 +32,9 @@ RUN go mod download
 COPY . .
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -tags="${TAGS}" -ldflags="-s -w" -o /out/cheburbox ./cmd/cheburbox/
+    go build -trimpath -tags="${TAGS}" \
+    -ldflags="-s -w -X github.com/Arsolitt/cheburbox/internal/buildinfo.Version=${VERSION} -X github.com/Arsolitt/cheburbox/internal/buildinfo.Commit=${REVISION}" \
+    -o /out/cheburbox ./cmd/cheburbox/
 
 # Runtime stage: distroless static image, non-root uid 65532, no shell.
 FROM ${RUNTIME_IMAGE}

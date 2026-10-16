@@ -1,0 +1,102 @@
+# GoReleaser configuration.
+#
+# Tag convention: vX.Y.Z for stable releases, vX.Y.Z-rc.N for prereleases
+# (`prerelease: auto` below classifies the -rc.N suffix automatically).
+#
+# Release:      git tag -s vX.Y.Z[-rc.N] -m "..." && git push origin vX.Y.Z[-rc.N]
+# Local check:  goreleaser check
+# Local dry run (builds everything, publishes nothing):
+#               goreleaser release --snapshot --clean
+version: 2
+
+project_name: cheburbox
+
+builds:
+  - id: cheburbox
+    main: ./cmd/cheburbox
+    binary: cheburbox
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    # Protocol build tags required for in-process validation (box.New) of
+    # generated configs. These mirror the Makefile TAGS default (see the
+    # Makefile header); keep both in sync. GoReleaser cannot expand
+    # `make print-tags`, so the list is duplicated here.
+    tags:
+      - with_gvisor
+      - with_quic
+      - with_dhcp
+      - with_wireguard
+      - with_utls
+      - with_acme
+      - with_clash_api
+      - with_tailscale
+      - with_masque
+      - with_mtproxy
+      - with_openvpn
+      - with_trusttunnel
+      - with_sudoku
+      - with_snell
+    ldflags:
+      - -s -w
+      - -X github.com/Arsolitt/cheburbox/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/Arsolitt/cheburbox/internal/buildinfo.Commit={{ .ShortCommit }}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+archives:
+  # Raw binaries, asset names: cheburbox-linux-amd64, cheburbox-linux-arm64,
+  # cheburbox-darwin-amd64, cheburbox-darwin-arm64.
+  - id: binaries
+    ids: [cheburbox]
+    formats: [binary]
+    name_template: "{{ .Binary }}-{{ .Os }}-{{ .Arch }}"
+
+  # Single license bundle attached to every release (binaries cannot carry files).
+  - id: licenses
+    meta: true
+    formats: [tar.gz]
+    name_template: "cheburbox-licenses_{{ .Version }}"
+    files:
+      - LICENSE
+      - NOTICE
+      - licenses/**/*
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot.{{ .ShortCommit }}"
+
+dockers_v2:
+  - id: cheburbox
+    ids: [cheburbox]
+    dockerfile: cmd/cheburbox/Dockerfile
+    images:
+      - ghcr.io/arsolitt/cheburbox
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    extra_files:
+      - NOTICE
+      - LICENSE
+      - licenses
+    labels:
+      org.opencontainers.image.title: cheburbox
+      org.opencontainers.image.description: Declarative sing-box configuration generator and validator
+      org.opencontainers.image.source: "{{ .GitURL }}"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.licenses: GPL-3.0-only
+    sbom: false
+
+release:
+  prerelease: auto
+  make_latest: "{{ not .Prerelease }}"
+  footer: |
+    cheburbox is licensed GPL-3.0-only. The corresponding source for the binaries
+    and the container image published here is available in this repository at the
+    matching tag. Third-party licenses: `cheburbox-licenses_{{ .Version }}.tar.gz`.
