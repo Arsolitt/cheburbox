@@ -15,6 +15,7 @@ type Config struct {
 	Log          json.RawMessage `json:"log,omitempty"`
 	Inbounds     []Inbound       `json:"inbounds,omitempty"`
 	Outbounds    []Outbound      `json:"outbounds,omitempty"`
+	Providers    json.RawMessage `json:"providers,omitempty"`
 	Endpoint     string          `json:"endpoint,omitempty"`
 	Version      int             `json:"version"`
 	Route        *Route          `json:"route,omitempty"`
@@ -173,25 +174,29 @@ type BrutalConfig struct {
 // Use Type field to determine which fields are relevant.
 type Outbound struct {
 	Multiplex                 *OutboundMultiplex `json:"multiplex,omitempty"`
-	URL                       string             `json:"url,omitempty"`
-	IdleTimeout               string             `json:"idle_timeout,omitempty"`
+	Delay                     string             `json:"delay,omitempty"`
+	Server                    string             `json:"server,omitempty"`
 	Inbound                   string             `json:"inbound,omitempty"`
 	Endpoint                  string             `json:"endpoint,omitempty"`
 	Flow                      string             `json:"flow,omitempty"`
 	DomainResolver            string             `json:"domain_resolver,omitempty"`
 	Interval                  string             `json:"interval,omitempty"`
-	Type                      string             `json:"type"`
-	Server                    string             `json:"server,omitempty"`
-	Tag                       string             `json:"tag"`
-	User                      string             `json:"user,omitempty"`
-	Delay                     string             `json:"delay,omitempty"`
 	Strategy                  string             `json:"strategy,omitempty"`
+	URL                       string             `json:"url,omitempty"`
+	Tag                       string             `json:"tag"`
+	IdleTimeout               string             `json:"idle_timeout,omitempty"`
+	User                      string             `json:"user,omitempty"`
+	Type                      string             `json:"type"`
 	BlacklistTimeout          string             `json:"blacklist_timeout,omitempty"`
-	Address                   []string           `json:"address,omitempty"`
+	Exclude                   string             `json:"exclude,omitempty"`
+	Include                   string             `json:"include,omitempty"`
+	Providers                 []string           `json:"providers,omitempty"`
 	Outbounds                 []string           `json:"outbounds,omitempty"`
+	Address                   []string           `json:"address,omitempty"`
 	MTU                       int                `json:"mtu,omitempty"`
 	Tolerance                 uint16             `json:"tolerance,omitempty"`
 	InterruptExistConnections bool               `json:"interrupt_exist_connections,omitempty"`
+	UseAllProviders           bool               `json:"use_all_providers,omitempty"`
 }
 
 // Route holds the routing configuration section.

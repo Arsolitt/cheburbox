@@ -2,6 +2,7 @@ package generate
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -332,4 +333,89 @@ func TestIntegrationMultiServerCrossServer(t *testing.T) {
 	if !hy2Found {
 		t.Error("proxy-server should have a hysteria2 outbound")
 	}
+}
+
+func TestIntegrationProvidersPassthrough(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	cfg := config.Config{
+		Version: 1,
+		Outbounds: []config.Outbound{
+			{Type: "direct", Tag: "direct"},
+			{
+				Type:      TypeURLTest,
+				Tag:       "proxy",
+				Outbounds: []string{"direct"},
+				URL:       "https://www.gstatic.com/generate_204",
+				Interval:  "3m",
+				Providers: []string{"subscription"},
+			},
+		},
+		Providers: json.RawMessage(`[
+			{
+				"type": "remote",
+				"tag": "subscription",
+				"url": "https://example.com/sub",
+				"download_detour": "direct",
+				"update_interval": "12h"
+			}
+		]`),
+	}
+
+	result, err := GenerateServer(dir, cfg, GenerateConfig{})
+	if err != nil {
+		t.Fatalf("GenerateServer: %v", err)
+	}
+
+	configFile := findFile(result.Files, "config.json")
+	if configFile == nil {
+		t.Fatal("config.json not in result")
+	}
+
+	var parsed struct {
+		Providers []struct {
+			Tag string `json:"tag"`
+		} `json:"providers"`
+		Outbounds []struct {
+			Tag       string          `json:"tag"`
+			Providers json.RawMessage `json:"providers"`
+		} `json:"outbounds"`
+	}
+	if err := json.Unmarshal(configFile.Content, &parsed); err != nil {
+		t.Fatalf("parse config.json: %v", err)
+	}
+	if len(parsed.Providers) != 1 || parsed.Providers[0].Tag != "subscription" {
+		t.Fatalf("providers = %+v, want single subscription entry", parsed.Providers)
+	}
+	for _, out := range parsed.Outbounds {
+		if out.Tag != "proxy" {
+			continue
+		}
+		refs, err := parseProvidersRef(out.Providers)
+		if err != nil {
+			t.Fatalf("proxy providers: %v", err)
+		}
+		if len(refs) != 1 || refs[0] != "subscription" {
+			t.Fatalf("proxy providers = %v, want [subscription]", refs)
+		}
+		return
+	}
+	t.Fatal("proxy outbound not found in generated config")
+}
+
+func parseProvidersRef(raw json.RawMessage) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var single string
+	if err := json.Unmarshal(raw, &single); err == nil {
+		return []string{single}, nil
+	}
+	var list []string
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("providers must be a string or list: %w", err)
+	}
+	return list, nil
 }

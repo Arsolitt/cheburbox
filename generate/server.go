@@ -378,6 +378,15 @@ func assembleOptions(
 		opts.Log = logOpts
 	}
 
+	if len(cfg.Providers) > 0 {
+		ctx := include.Context(context.Background())
+		var providers []option.Provider
+		if err := singjson.UnmarshalContext(ctx, cfg.Providers, &providers); err != nil {
+			return nil, fmt.Errorf("unmarshal providers: %w", err)
+		}
+		opts.Providers = providers
+	}
+
 	if cfg.Route == nil && opts.Route != nil {
 		opts.Route.AutoDetectInterface = true
 	}

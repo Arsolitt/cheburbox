@@ -715,6 +715,7 @@ Reference documentation for the `cheburbox.json` schema. Each server directory c
 | `endpoint` | `string` | — | Conditional | Public endpoint address (IP or IP:port) of the server. Required when any inbounds are defined. Client-only servers (outbounds only) do not need an endpoint. |
 | `inbounds` | `[]Inbound` | `[]` | No | Inbound configurations. Supported types: `tun`, `vless`, `hysteria2`, `amneziawg`. |
 | `outbounds` | `[]Outbound` | `[]` | No | Outbound configurations. Supported types: `direct`, `urltest`, `selector`, `fallback`, `failover`, `vless` (cross-server), `hysteria2` (cross-server), `amneziawg` (cross-server). |
+| `providers` | `object` | — | No | Sing-box-extended `providers[]` as raw JSON — external subscription sources, validated against the fork schema at generate time. Each `type: "remote"` entry carries `tag`, `url`, `user_agent`, `headers`, `download_detour`, `update_interval`, `remove_emojis`, `exclude`/`include` node-name regexps, and `health_check`. Reference tags from `urltest`/`selector` groups via their `providers` field. |
 | `route` | `Route` | — | No | Routing configuration. When omitted, `auto_detect_interface` is automatically set to `true` in generated output. |
 | `log` | `object` | — | No | Sing-box log options as raw JSON. Passed through to sing-box unvalidated. |
 | `experimental` | `Experimental` | — | No | Experimental sing-box settings. |
@@ -1074,6 +1075,10 @@ Automatically selects the best outbound from a group based on latency testing.
 | `tag` | `string` | — | Yes | Outbound identifier. |
 | `type` | `string` | — | Yes | Must be `"urltest"`. |
 | `outbounds` | `[]string` | — | Yes | Tags of candidate outbounds to test. |
+| `providers` | `[]string` | — | No | Provider tags whose nodes join this group (top-level `providers`). |
+| `use_all_providers` | `bool` | `false` | No | Nodes from every declared provider join the group. |
+| `include` | `string` | — | No | Regexp — only provider nodes with matching names join the group. |
+| `exclude` | `string` | — | No | Regexp — provider nodes with matching names are dropped. |
 | `url` | `string` | — | No | URL used for latency testing. |
 | `interval` | `string` | — | No | Testing interval as a Go duration string (e.g. `"3m"`, `"5s"`, `"1h30m"`). |
 | `tolerance` | `uint16` | — | No | Tolerance in milliseconds for switching outbounds. |
@@ -1103,6 +1108,10 @@ Manual outbound selection from a group.
 | `tag` | `string` | — | Yes | Outbound identifier. |
 | `type` | `string` | — | Yes | Must be `"selector"`. |
 | `outbounds` | `[]string` | — | Yes | Tags of available outbounds to select from. |
+| `providers` | `[]string` | — | No | Provider tags whose nodes join this group (top-level `providers`). |
+| `use_all_providers` | `bool` | `false` | No | Nodes from every declared provider join the group. |
+| `include` | `string` | — | No | Regexp — only provider nodes with matching names join the group. |
+| `exclude` | `string` | — | No | Regexp — provider nodes with matching names are dropped. |
 
 ### Example
 

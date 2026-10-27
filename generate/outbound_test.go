@@ -111,6 +111,40 @@ func TestBuildURLTestOutbound(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "with providers and filters",
+			out: config.Outbound{
+				Type:            TypeURLTest,
+				Tag:             "proxy",
+				URL:             "https://www.gstatic.com/generate_204",
+				Interval:        "3m",
+				Outbounds:       []string{"vless-out"},
+				Providers:       []string{"subscription"},
+				UseAllProviders: true,
+				Include:         "SE|DE",
+				Exclude:         "(?i)ОБХОД",
+			},
+			want: func(t *testing.T, result option.Outbound) {
+				t.Helper()
+				opts, ok := result.Options.(*option.URLTestOutboundOptions)
+				if !ok {
+					t.Fatalf("Options type = %T, want *URLTestOutboundOptions", result.Options)
+				}
+				common := opts.GroupCommonOption
+				if len(common.Providers) != 1 || common.Providers[0] != "subscription" {
+					t.Errorf("Providers = %v, want [subscription]", common.Providers)
+				}
+				if !common.UseAllProviders {
+					t.Error("UseAllProviders = false, want true")
+				}
+				if common.Include == nil || common.Include.Build().String() != "SE|DE" {
+					t.Errorf("Include = %v, want SE|DE", common.Include)
+				}
+				if common.Exclude == nil || common.Exclude.Build().String() != "(?i)ОБХОД" {
+					t.Errorf("Exclude = %v, want (?i)ОБХОД", common.Exclude)
+				}
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -159,6 +193,94 @@ func TestBuildSelectorOutbound(t *testing.T) {
 	}
 	if result.Type != TypeSelector {
 		t.Errorf("Type = %q, want selector", result.Type)
+	}
+}
+
+func TestBuildSelectorOutboundWithProviders(t *testing.T) {
+	t.Parallel()
+
+	out := config.Outbound{
+		Type:      TypeSelector,
+		Tag:       "manual-proxy",
+		Outbounds: []string{"vless-out"},
+		Providers: []string{"subscription"},
+		Exclude:   "(?i)Авто",
+	}
+	result, err := BuildOutbound(out)
+	if err != nil {
+		t.Fatalf("BuildOutbound: %v", err)
+	}
+
+	opts, ok := result.Options.(*option.SelectorOutboundOptions)
+	if !ok {
+		t.Fatalf("Options type = %T, want *SelectorOutboundOptions", result.Options)
+	}
+	if len(opts.Providers) != 1 || opts.Providers[0] != "subscription" {
+		t.Errorf("Providers = %v, want [subscription]", opts.Providers)
+	}
+	if opts.Exclude == nil || opts.Exclude.Build().String() != "(?i)Авто" {
+		t.Errorf("Exclude = %v, want (?i)Авто", opts.Exclude)
+	}
+	if opts.Include != nil {
+		t.Errorf("Include = %v, want nil", opts.Include)
+	}
+	if opts.UseAllProviders {
+		t.Error("UseAllProviders = true, want false")
+	}
+}
+
+func TestBuildOutboundInvalidIncludeRegexp(t *testing.T) {
+	t.Parallel()
+
+	out := config.Outbound{
+		Type:      TypeURLTest,
+		Tag:       "proxy",
+		Interval:  "3m",
+		Outbounds: []string{"vless-out"},
+		Include:   "[invalid",
+	}
+	_, err := BuildOutbound(out)
+	if err == nil {
+		t.Fatal("expected error for invalid include regexp, got nil")
+	}
+	if !strings.Contains(err.Error(), "compile include regexp") {
+		t.Errorf("error = %q, want compile include regexp context", err.Error())
+	}
+}
+
+func TestBuildOutboundInvalidExcludeRegexp(t *testing.T) {
+	t.Parallel()
+
+	out := config.Outbound{
+		Type:      TypeSelector,
+		Tag:       "manual-proxy",
+		Outbounds: []string{"vless-out"},
+		Exclude:   "[invalid",
+	}
+	_, err := BuildOutbound(out)
+	if err == nil {
+		t.Fatal("expected error for invalid exclude regexp, got nil")
+	}
+	if !strings.Contains(err.Error(), "compile exclude regexp") {
+		t.Errorf("error = %q, want compile exclude regexp context", err.Error())
+	}
+}
+
+func TestBuildOutboundProvidersOnUnsupportedType(t *testing.T) {
+	t.Parallel()
+
+	out := config.Outbound{
+		Type:      TypeFallback,
+		Tag:       "fb",
+		Outbounds: []string{"vless-out"},
+		Providers: []string{"subscription"},
+	}
+	_, err := BuildOutbound(out)
+	if err == nil {
+		t.Fatal("expected guard error for providers on fallback outbound, got nil")
+	}
+	if !strings.Contains(err.Error(), "only supported on selector and urltest") {
+		t.Errorf("error = %q, want type guard message", err.Error())
 	}
 }
 

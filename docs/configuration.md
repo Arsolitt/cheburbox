@@ -58,6 +58,7 @@ Each server's config has the following top-level shape:
   "dns": { "servers": [ ... ] },
   "inbounds": [ ... ],
   "outbounds": [ ... ],
+  "providers": [ ... ],
   "route": { ... },
   "experimental": { "cache_file": { "enabled": true } }
 }
@@ -71,8 +72,11 @@ Each server's config has the following top-level shape:
 | `dns`          | `DNS`             | Yes                            | Must contain at least one server (`len(dns.servers) > 0`).                                    |
 | `inbounds`     | `[]Inbound`       | No                             | Listening services this server exposes.                                                       |
 | `outbounds`    | `[]Outbound`      | No                             | Upstream destinations / cross-server clients.                                                 |
+| `providers`    | `json.RawMessage` | No                             | Sing-box-extended `providers[]` passthrough — external subscription sources, validated against the fork schema at generate time. |
 | `route`        | `*Route`          | No                             | Routing rules. If omitted, the generated route forces `auto_detect_interface=true`.           |
 | `experimental` | `*Experimental`   | No                             | Container for experimental sing-box options (currently only `cache_file`).                    |
+
+`providers` entries follow the sing-box-extended provider shape: `type: "remote"` with `tag`, `url`, `user_agent`, `headers`, `download_detour`, `update_interval`, `remove_emojis`, `exclude`/`include` (node-name regexps used to filter subscription nodes), and `health_check`. Subscription payloads are parsed by the fork itself (sing-box JSON, SIP008, Clash YAML, raw share links). Reference provider tags from `urltest`/`selector` groups via the group's `providers` field (see [Outbounds](#outbounds)). `download_detour` on a provider is not deprecated — only rule-set-level `download_detour` is (see [`Route`](#route)).
 
 ### Validation rules at load time
 
@@ -418,6 +422,10 @@ For `vless`, `hysteria2`, and `amneziawg`, cheburbox builds a cross-server refer
 | `domain_resolver`             | `string`   | vless / hysteria2    | DNS server tag used to resolve the outbound's hostname.                                       |
 | `multiplex`                    | `*OutboundMultiplex` | vless                | Sing-box [multiplex](https://sing-box.sagernet.org/configuration/shared/multiplex/) (mux). See [Multiplex](#multiplex). |
 | `outbounds`                   | `[]string` | urltest / selector / fallback / failover | Member outbound tags. **Intra-server only** — cross-server tags are not supported in groups.  |
+| `providers`                   | `[]string` | urltest / selector  | Provider tags whose nodes join this group alongside `outbounds` (top-level `providers`).        |
+| `use_all_providers`           | `bool`     | urltest / selector  | Nodes from every declared provider join the group.                                              |
+| `include`                     | `string`   | urltest / selector  | Regexp — only provider nodes with matching names join the group.                                 |
+| `exclude`                     | `string`   | urltest / selector  | Regexp — provider nodes with matching names are dropped.                                         |
 | `url`                         | `string`   | urltest              | Probe URL.                                                                                    |
 | `interval`                    | `string`   | urltest              | Go duration (e.g. `3m`).                                                                      |
 | `tolerance`                   | `uint16`   | urltest              |                                                                                               |
@@ -625,6 +633,7 @@ AmneziaWG cross-server outbounds participate in the same DAG/topological-generat
 | `dns`          | `DNS`             | Yes                | Must contain at least one server.                                                    |
 | `inbounds`     | `[]Inbound`       | No                 | Inbound services exposed by this server.                                             |
 | `outbounds`    | `[]Outbound`      | No                 | Outbound destinations and groups.                                                    |
+| `providers`    | `json.RawMessage` | No                 | Sing-box-extended `providers[]` passthrough — external subscription sources.         |
 | `route`        | `*Route`          | No                 | Routing rules; if omitted, `auto_detect_interface=true` is forced in generated config. |
 | `experimental` | `*Experimental`   | No                 | Container for experimental sing-box options.                                         |
 
@@ -786,6 +795,10 @@ Only `protocol`, `preset`, and `mtu` are user-facing. The actual obfuscation par
 | `address`                     | `[]string` | amneziawg            | Exactly one CIDR: this client's tunnel IP within the target server's subnet.                   |
 | `mtu`                         | `int`      | amneziawg            | WireGuard interface MTU. Default `1280`.                                                        |
 | `outbounds`                   | `[]string` | urltest / selector / fallback / failover | Intra-server tags only.                                                                         |
+| `providers`                   | `[]string` | urltest / selector   | Provider tags whose nodes join this group alongside `outbounds`.                                |
+| `use_all_providers`           | `bool`     | urltest / selector   | Nodes from every declared provider join the group.                                              |
+| `include`                     | `string`   | urltest / selector   | Regexp — only provider nodes with matching names join the group.                                 |
+| `exclude`                     | `string`   | urltest / selector   | Regexp — provider nodes with matching names are dropped.                                         |
 | `url`                         | `string`   | urltest              | Probe URL.                                                                                      |
 | `interval`                    | `string`   | urltest              | Go duration (e.g. `3m`).                                                                        |
 | `tolerance`                   | `uint16`   | urltest              |                                                                                                 |

@@ -3,6 +3,7 @@ package generate
 import (
 	"encoding/base64"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/sagernet/sing-box/option"
@@ -43,6 +44,14 @@ func BuildOutboundWithState(
 		opt(&cfg)
 	}
 
+	if out.Type != TypeSelector && out.Type != TypeURLTest &&
+		(len(out.Providers) > 0 || out.UseAllProviders || out.Include != "" || out.Exclude != "") {
+		return option.Outbound{}, fmt.Errorf(
+			"providers/use_all_providers/include/exclude are only supported on selector and urltest outbounds, got type %q",
+			out.Type,
+		)
+	}
+
 	switch out.Type {
 	case TypeDirect:
 		return buildDirectOutbound(out)
@@ -76,6 +85,34 @@ func buildDirectOutbound(out config.Outbound) (option.Outbound, error) {
 	}, nil
 }
 
+// buildGroupCommon maps shared group fields (outbounds, provider references,
+// and include/exclude node filters) onto sing-box GroupCommonOption.
+func buildGroupCommon(out config.Outbound) (option.GroupCommonOption, error) {
+	common := option.GroupCommonOption{
+		Outbounds:       out.Outbounds,
+		Providers:       badoption.Listable[string](out.Providers),
+		UseAllProviders: out.UseAllProviders,
+	}
+
+	if out.Include != "" {
+		include, err := regexp.Compile(out.Include)
+		if err != nil {
+			return option.GroupCommonOption{}, fmt.Errorf("compile include regexp: %w", err)
+		}
+		common.Include = (*badoption.Regexp)(include)
+	}
+
+	if out.Exclude != "" {
+		exclude, err := regexp.Compile(out.Exclude)
+		if err != nil {
+			return option.GroupCommonOption{}, fmt.Errorf("compile exclude regexp: %w", err)
+		}
+		common.Exclude = (*badoption.Regexp)(exclude)
+	}
+
+	return common, nil
+}
+
 func buildURLTestOutbound(out config.Outbound) (option.Outbound, error) {
 	interval, err := parseInterval(out.Interval)
 	if err != nil {
@@ -87,13 +124,16 @@ func buildURLTestOutbound(out config.Outbound) (option.Outbound, error) {
 		return option.Outbound{}, fmt.Errorf("parse urltest idle_timeout: %w", err)
 	}
 
+	common, err := buildGroupCommon(out)
+	if err != nil {
+		return option.Outbound{}, err
+	}
+
 	return option.Outbound{
 		Type: TypeURLTest,
 		Tag:  out.Tag,
 		Options: &option.URLTestOutboundOptions{
-			GroupCommonOption: option.GroupCommonOption{
-				Outbounds: out.Outbounds,
-			},
+			GroupCommonOption:         common,
 			URL:                       out.URL,
 			Interval:                  interval,
 			Tolerance:                 out.Tolerance,
@@ -104,13 +144,16 @@ func buildURLTestOutbound(out config.Outbound) (option.Outbound, error) {
 }
 
 func buildSelectorOutbound(out config.Outbound) (option.Outbound, error) {
+	common, err := buildGroupCommon(out)
+	if err != nil {
+		return option.Outbound{}, err
+	}
+
 	return option.Outbound{
 		Type: TypeSelector,
 		Tag:  out.Tag,
 		Options: &option.SelectorOutboundOptions{
-			GroupCommonOption: option.GroupCommonOption{
-				Outbounds: out.Outbounds,
-			},
+			GroupCommonOption: common,
 		},
 	}, nil
 }
