@@ -814,7 +814,7 @@ Only `protocol`, `preset`, and `mtu` are user-facing. The actual obfuscation par
 | `auto_detect_interface`   | `bool`            | No       |                                                                                                                                      |
 | `default_domain_resolver` | `string`          | No       |                                                                                                                                      |
 | `rules`                   | `json.RawMessage` | No       | Sing-box rule passthrough.                                                                                                           |
-| `rule_sets`               | `json.RawMessage` | No       | Remote and other rule-set declarations passed through.                                                                               |
+| `rule_sets`               | `json.RawMessage` | No       | Remote and other rule-set declarations passed through. `download_detour` is rejected (deprecated since sing-box 1.14, removed in 1.16) — use the inline `http_client: {"detour": ...}` form. |
 | `custom_rule_sets`        | `[]string`        | No       | Local JSON rule-set source names. Compiled to `rule-set/<name>.srs` and emitted with `type: local`. See [`./rule-set.md`](./rule-set.md). |
 
 ---

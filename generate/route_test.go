@@ -2,6 +2,7 @@ package generate
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/Arsolitt/cheburbox/config"
@@ -162,5 +163,49 @@ func TestConvertRouteNoDefaultDomainResolver(t *testing.T) {
 
 	if opts.DefaultDomainResolver != nil {
 		t.Errorf("DefaultDomainResolver = %v, want nil", opts.DefaultDomainResolver)
+	}
+}
+
+func TestConvertRouteRuleSetHTTPClient(t *testing.T) {
+	t.Parallel()
+
+	route := &config.Route{
+		RuleSets: json.RawMessage(`[
+			{"type": "remote", "tag": "geoip", "url": "https://example.com/geoip.json", "format": "binary", "http_client": {"detour": "direct"}}
+		]`),
+	}
+
+	opts, err := ConvertRoute(route)
+	if err != nil {
+		t.Fatalf("ConvertRoute: %v", err)
+	}
+
+	if len(opts.RuleSet) != 1 {
+		t.Fatalf("RuleSet count = %d, want 1", len(opts.RuleSet))
+	}
+	remote := opts.RuleSet[0].RemoteOptions
+	if remote.HTTPClient == nil {
+		t.Fatal("HTTPClient = nil, want http_client on remote rule-set")
+	}
+	if remote.HTTPClient.Detour != "direct" {
+		t.Errorf("HTTPClient.Detour = %q, want direct", remote.HTTPClient.Detour)
+	}
+}
+
+func TestConvertRouteRuleSetDownloadDetourRejected(t *testing.T) {
+	t.Parallel()
+
+	route := &config.Route{
+		RuleSets: json.RawMessage(`[
+			{"type": "remote", "tag": "geoip", "url": "https://example.com/geoip.json", "format": "binary", "download_detour": "direct"}
+		]`),
+	}
+
+	_, err := ConvertRoute(route)
+	if err == nil {
+		t.Fatal("expected error for deprecated download_detour, got nil")
+	}
+	if !strings.Contains(err.Error(), "deprecated") {
+		t.Errorf("error = %q, want message mentioning deprecated", err.Error())
 	}
 }

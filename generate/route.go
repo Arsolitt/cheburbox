@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/include"
@@ -46,6 +47,16 @@ func ConvertRoute(route *config.Route) (*option.RouteOptions, error) {
 		var ruleSets []option.RuleSet
 		if err := singjson.UnmarshalContext(ctx, route.RuleSets, &ruleSets); err != nil {
 			return nil, fmt.Errorf("unmarshal rule_sets: %w", err)
+		}
+		for i, rs := range ruleSets {
+			//nolint:staticcheck // deliberate deprecated-field read: fail fast on download_detour instead of silently passing it through.
+			if rs.RemoteOptions.DownloadDetour != "" {
+				return nil, fmt.Errorf(
+					"rule_sets[%d] %q: download_detour is deprecated in sing-box 1.14 (removed in 1.16); use http_client instead",
+					i,
+					strings.Join(rs.Tag, ","),
+				)
+			}
 		}
 		routeOpts.RuleSet = ruleSets
 	}

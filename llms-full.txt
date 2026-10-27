@@ -746,7 +746,7 @@ Reference documentation for the `cheburbox.json` schema. Each server directory c
 | --- | --- | --- | --- | --- |
 | `route.final` | `string` | — | No | Default outbound tag for unmatched traffic. |
 | `route.default_domain_resolver` | `string` | — | No | DNS server tag for domain resolution on outbounds. |
-| `route.rule_sets` | `object` | — | No | Remote rule-set definitions as raw sing-box JSON. Passed through unvalidated. |
+| `route.rule_sets` | `object` | — | No | Remote rule-set definitions as raw sing-box JSON. `download_detour` is rejected (deprecated since sing-box 1.14, removed in 1.16); use the inline `http_client: {"detour": ...}` form. |
 | `route.custom_rule_sets` | `[]string` | — | No | Names of local rule-sets to compile from JSON sources in the server directory. Each name maps to `<name>.json` -> `rule-set/<name>.srs`. |
 | `route.rules` | `object` | — | No | Route rules as raw sing-box JSON. Passed through unvalidated; content validated only by `sing-box check`. |
 | `route.auto_detect_interface` | `bool` | `false` | No | Auto-detect network interface. Automatically set to `true` when no route section is defined. |
@@ -1558,7 +1558,7 @@ Rules are evaluated in order. The first matching rule determines the outbound. U
 
 ### Remote Rule Sets
 
-Remote rule-sets are fetched from URLs at runtime. They are defined in sing-box format in the `rule_sets` field.
+Remote rule-sets are fetched from URLs at runtime. They are defined in sing-box format in the `rule_sets` field. Rule-set level `download_detour` is deprecated (removed in sing-box 1.16) and rejected by the generator — route downloads through the inline `http_client` object instead.
 
 ```json
 {
@@ -1566,8 +1566,9 @@ Remote rule-sets are fetched from URLs at runtime. They are defined in sing-box 
     {
       "type": "remote",
       "tag": "geoip",
-      "url": "https://example.com/geoip.json",
-      "format": "binary"
+      "url": "https://example.com/geoip.srs",
+      "format": "binary",
+      "http_client": { "detour": "direct" }
     }
   ]
 }
