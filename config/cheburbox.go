@@ -69,30 +69,29 @@ func UserName(users []InboundUser) []string {
 // Inbound represents a single inbound configuration.
 // Use Type field to determine which fields are relevant.
 type Inbound struct {
-	Amnezia                *AmneziaConfig    `json:"amnezia,omitempty"`
-	Obfs                   *ObfsConfig       `json:"obfs,omitempty"`
-	TLS                    *InboundTLS       `json:"tls,omitempty"`
-	Masq                   *MasqueradeConfig `json:"masquerade,omitempty"`
-	Multiplex              *InboundMultiplex `json:"multiplex,omitempty"`
-	Type                   string            `json:"type"`
-	Stack                  string            `json:"stack,omitempty"`
-	Tag                    string            `json:"tag"`
-	Listen                 string            `json:"listen,omitempty"`
-	InterfaceName          string            `json:"interface_name,omitempty"`
-	ExcludeInterface       []string          `json:"exclude_interface,omitempty"`
-	Address                []string          `json:"address,omitempty"`
-	Users                  []InboundUser     `json:"users,omitempty"`
-	RouteExcludeAddress    []string          `json:"route_exclude_address,omitempty"`
-	DownMbps               int               `json:"down_mbps,omitempty"`
-	UpMbps                 int               `json:"up_mbps,omitempty"`
-	MTU                    int               `json:"mtu,omitempty"`
-	ListenPort             int               `json:"listen_port,omitempty"`
-	IPRoute2TableIndex     int               `json:"iproute2_table_index,omitempty"`
-	IPRoute2RuleIndex      int               `json:"iproute2_rule_index,omitempty"`
-	AutoRoute              bool              `json:"auto_route,omitempty"`
-	AutoRedirect           bool              `json:"auto_redirect,omitempty"`
-	StrictRoute            bool              `json:"strict_route,omitempty"`
-	EndpointIndependentNAT bool              `json:"endpoint_independent_nat,omitempty"`
+	Amnezia             *AmneziaConfig    `json:"amnezia,omitempty"`
+	Obfs                *ObfsConfig       `json:"obfs,omitempty"`
+	TLS                 *InboundTLS       `json:"tls,omitempty"`
+	Masq                *MasqueradeConfig `json:"masquerade,omitempty"`
+	Multiplex           *InboundMultiplex `json:"multiplex,omitempty"`
+	Type                string            `json:"type"`
+	Stack               string            `json:"stack,omitempty"`
+	Tag                 string            `json:"tag"`
+	Listen              string            `json:"listen,omitempty"`
+	InterfaceName       string            `json:"interface_name,omitempty"`
+	ExcludeInterface    []string          `json:"exclude_interface,omitempty"`
+	Address             []string          `json:"address,omitempty"`
+	Users               []InboundUser     `json:"users,omitempty"`
+	RouteExcludeAddress []string          `json:"route_exclude_address,omitempty"`
+	DownMbps            int               `json:"down_mbps,omitempty"`
+	UpMbps              int               `json:"up_mbps,omitempty"`
+	MTU                 int               `json:"mtu,omitempty"`
+	ListenPort          int               `json:"listen_port,omitempty"`
+	IPRoute2TableIndex  int               `json:"iproute2_table_index,omitempty"`
+	IPRoute2RuleIndex   int               `json:"iproute2_rule_index,omitempty"`
+	AutoRoute           bool              `json:"auto_route,omitempty"`
+	AutoRedirect        bool              `json:"auto_redirect,omitempty"`
+	StrictRoute         bool              `json:"strict_route,omitempty"`
 }
 
 // InboundTLS holds TLS configuration for an inbound.

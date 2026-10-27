@@ -301,7 +301,6 @@ The TUN inbound type exposes OS-level networking. Its fields are largely sing-bo
 | `auto_route`                 | `bool`     |                                        |
 | `auto_redirect`              | `bool`     |                                        |
 | `strict_route`               | `bool`     |                                        |
-| `endpoint_independent_nat`   | `bool`     |                                        |
 | `stack`                      | `string`   |                                        |
 | `exclude_interface`          | `[]string` |                                        |
 | `route_exclude_address`      | `[]string` | Parsed as `netip.Prefix`.              |
@@ -698,7 +697,6 @@ AmneziaWG cross-server outbounds participate in the same DAG/topological-generat
 | `auto_route`                 | `bool`              | tun                  |                                                                                                |
 | `auto_redirect`              | `bool`              | tun                  |                                                                                                |
 | `strict_route`               | `bool`              | tun                  |                                                                                                |
-| `endpoint_independent_nat`   | `bool`              | tun                  |                                                                                                |
 | `stack`                      | `string`            | tun                  |                                                                                                |
 | `exclude_interface`          | `[]string`          | tun                  |                                                                                                |
 | `route_exclude_address`      | `[]string`          | tun                  | Parsed as `netip.Prefix`.                                                                      |

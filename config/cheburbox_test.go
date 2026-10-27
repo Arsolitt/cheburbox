@@ -50,7 +50,6 @@ func TestConfigUnmarshal(t *testing.T) {
 				"mtu": 1500,
 				"auto_route": true,
 				"stack": "system",
-				"endpoint_independent_nat": true,
 				"exclude_interface": ["wt0", "awg0"],
 				"route_exclude_address": ["10.0.0.0/8"]
 			}

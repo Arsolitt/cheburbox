@@ -825,7 +825,6 @@ System-level proxy inbound using a TUN interface. No user credentials.
 | `auto_route` | `bool` | `false` | No | Automatically configure routes for the TUN interface. |
 | `auto_redirect` | `bool` | `false` | No | Automatically redirect system traffic to the TUN interface. |
 | `strict_route` | `bool` | `false` | No | Enforce strict routing rules to prevent traffic leaks. |
-| `endpoint_independent_nat` | `bool` | `false` | No | Enable endpoint-independent NAT for the TUN interface. |
 | `iproute2_table_index` | `int` | — | No | Custom iproute2 routing table index. |
 | `iproute2_rule_index` | `int` | — | No | Custom iproute2 routing rule index. |
 | `stack` | `string` | — | No | TUN stack type (e.g. `"system"`, `"gvisor"`). |
@@ -843,7 +842,6 @@ System-level proxy inbound using a TUN interface. No user credentials.
   "mtu": 1500,
   "auto_route": true,
   "stack": "system",
-  "endpoint_independent_nat": true,
   "exclude_interface": ["wt0", "awg0"],
   "route_exclude_address": ["10.0.0.0/8"]
 }
